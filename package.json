@@ -3,6 +3,9 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "test:sedapal": "bun run src/scripts/test-sedapal.ts"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },
