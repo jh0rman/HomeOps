@@ -7,6 +7,8 @@ import type {
   SedapalSystemLoginResponse,
   SedapalUserLoginRequest,
   SedapalUserLoginResponse,
+  SedapalInvoicesRequest,
+  SedapalInvoicesResponse,
 } from "./types";
 
 const BASE_URL = "https://webapp16.sedapal.com.pe/OficinaComercialVirtual/api";
@@ -98,16 +100,45 @@ export class SedapalClient {
   }
 
   /**
-   * Gets the user's invoices
-   * TODO: Implement when we discover the endpoint
+   * Gets the user's invoices/receipts with debts
+   * @param supplyNumber - Optional supply number (uses authenticated user's NIS if not provided)
+   * @param pageNum - Page number (1-indexed, default: 1)
+   * @param pageSize - Items per page (default: 10)
    */
-  async getInvoices(): Promise<unknown> {
-    if (!this.isAuthenticated()) {
-      throw new Error("User not authenticated. Call login() first.");
+  async getInvoices(
+    supplyNumber?: number,
+    pageNum: number = 1,
+    pageSize: number = 10
+  ): Promise<SedapalInvoicesResponse> {
+    const token = await this.ensureSystemToken();
+
+    const nisRad = supplyNumber ?? this.userSession?.nis_rad;
+    if (!nisRad) {
+      throw new Error(
+        "Supply number required. Login first or provide supplyNumber."
+      );
     }
-    throw new Error(
-      "Not implemented yet - need to discover endpoint after login"
+
+    const body: SedapalInvoicesRequest = {
+      nis_rad: nisRad,
+      page_num: pageNum,
+      page_size: pageSize,
+    };
+
+    const response = await fetch(
+      `${BASE_URL}/recibos/lista-recibos-deudas-nis`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: token,
+        },
+        body: JSON.stringify(body),
+      }
     );
+
+    const data = (await response.json()) as SedapalInvoicesResponse;
+    return data;
   }
 }
 

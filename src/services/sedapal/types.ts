@@ -31,15 +31,39 @@ export interface SedapalUserLoginResponse {
   };
 }
 
-// ============ Invoices (to be discovered) ============
+// ============ Invoices/Receipts ============
+export interface SedapalInvoicesRequest {
+  nis_rad: number; // Supply number
+  page_num: number; // Page number (1-indexed)
+  page_size: number; // Items per page
+}
+
+export interface SedapalInvoicesResponse {
+  nRESP_SP: number; // 0 = error, 1 = success
+  cRESP_SP: string; // Response message
+  cRESP_SP2: string | null;
+  bRESP: SedapalInvoice[] | null;
+  total: number; // Total number of invoices
+}
+
 export interface SedapalInvoice {
-  invoiceNumber?: string;
-  issueDate?: string;
-  dueDate?: string;
-  totalAmount?: number;
-  status?: string;
-  period?: string;
-  supplyNumber?: string;
+  nis_rad: number; // Supply number (sometimes 0 in response)
+  sec_nis: number; // Supply sequence
+  cod_cli: number; // Customer code
+  sec_rec: number; // Receipt sequence
+  f_fact: string; // Invoice date (YYYY-MM-DD)
+  mes: string; // Billing month (YYYY-MM-DD)
+  vencimiento: string; // Due date (YYYY-MM-DD)
+  tipo_recibo: string; // Receipt type (e.g., "Consumo de agua")
+  recibo: string; // Receipt number
+  nro_factura: string; // Invoice number
+  est_act: string | null; // Current status
+  total_fact: number; // Total invoice amount
+  imp_cta: number; // Account tax
+  tip_rec: string | null; // Receipt type code
+  deuda: number; // Outstanding debt amount
+  volumen: number; // Water consumption volume (m³)
+  select: boolean; // Selection flag (for UI)
 }
 
 export interface SedapalSupply {
