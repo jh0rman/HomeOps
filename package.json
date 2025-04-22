@@ -4,7 +4,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "test:sedapal": "bun run src/scripts/test-sedapal.ts"
+    "test:sedapal": "bun run src/scripts/test-sedapal.ts",
+    "test:luzdelsur": "bun run src/scripts/test-luzdelsur.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"
