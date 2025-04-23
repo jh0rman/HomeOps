@@ -3,13 +3,20 @@
  * https://www.luzdelsur.pe
  */
 
-import type { LuzDelSurLoginRequest, LuzDelSurLoginResponse } from "./types";
+import type {
+  LuzDelSurLoginRequest,
+  LuzDelSurLoginResponse,
+  LuzDelSurSuppliesRequest,
+  LuzDelSurSuppliesResponse,
+  LuzDelSurLatestInvoiceRequest,
+  LuzDelSurLatestInvoiceResponse,
+} from "./types";
 
 const BASE_URL = "https://www.luzdelsur.pe/es";
 
 export class LuzDelSurClient {
   private authToken: string | null = null;
-  private cookies: string | null = null;
+  private userEmail: string | null = null;
 
   /**
    * User authentication with email and password
@@ -26,30 +33,19 @@ export class LuzDelSurClient {
       },
     };
 
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json; charset=utf-8",
-    };
-
-    if (this.cookies) {
-      headers["Cookie"] = this.cookies;
-    }
-
     const response = await fetch(`${BASE_URL}/Login/ValidarAcceso`, {
       method: "POST",
-      headers,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+      },
       body: JSON.stringify(body),
     });
-
-    // Capture cookies from response
-    const setCookie = response.headers.get("set-cookie");
-    if (setCookie) {
-      this.cookies = setCookie;
-    }
 
     const data = (await response.json()) as LuzDelSurLoginResponse;
 
     if (data.success && data.datos?.token) {
       this.authToken = data.datos.token;
+      this.userEmail = email;
     }
 
     return data;
@@ -59,7 +55,7 @@ export class LuzDelSurClient {
    * Checks if the user is authenticated
    */
   isAuthenticated(): boolean {
-    return this.authToken !== null;
+    return this.authToken !== null && this.userEmail !== null;
   }
 
   /**
@@ -70,16 +66,67 @@ export class LuzDelSurClient {
   }
 
   /**
-   * Gets the user's invoices
-   * TODO: Implement when we discover the endpoint
+   * Lists user's supplies (suministros)
    */
-  async getInvoices(): Promise<unknown> {
+  async getSupplies(): Promise<LuzDelSurSuppliesResponse> {
     if (!this.isAuthenticated()) {
       throw new Error("User not authenticated. Call login() first.");
     }
-    throw new Error(
-      "Not implemented yet - need to discover the invoices endpoint"
+
+    const body: LuzDelSurSuppliesRequest = {
+      request: {
+        Token: this.authToken!,
+        Correo: this.userEmail!,
+      },
+    };
+
+    const response = await fetch(
+      `${BASE_URL}/InformacionGuardada/ListarSuministros`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+        },
+        body: JSON.stringify(body),
+      }
     );
+
+    const data = (await response.json()) as LuzDelSurSuppliesResponse;
+    return data;
+  }
+
+  /**
+   * Gets the latest invoice for a supply
+   * @param supplyNumber - The supply number (suministro)
+   */
+  async getLatestInvoice(
+    supplyNumber: string
+  ): Promise<LuzDelSurLatestInvoiceResponse> {
+    if (!this.isAuthenticated()) {
+      throw new Error("User not authenticated. Call login() first.");
+    }
+
+    const body: LuzDelSurLatestInvoiceRequest = {
+      request: {
+        Token: this.authToken!,
+        Correo: this.userEmail!,
+        Suministro: supplyNumber,
+      },
+    };
+
+    const response = await fetch(
+      `${BASE_URL}/InformacionGuardada/ObtenerUltimaFacturacion`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+        },
+        body: JSON.stringify(body),
+      }
+    );
+
+    const data = (await response.json()) as LuzDelSurLatestInvoiceResponse;
+    return data;
   }
 }
 

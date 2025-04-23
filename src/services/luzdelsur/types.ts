@@ -23,27 +23,62 @@ export interface LuzDelSurLoginResponse {
   } | null;
 }
 
-// ============ Invoices (to be discovered) ============
-export interface LuzDelSurInvoicesResponse {
-  success?: boolean;
-  datos?: LuzDelSurInvoice[] | null;
-  [key: string]: unknown;
+// ============ Supplies ============
+export interface LuzDelSurSuppliesRequest {
+  request: {
+    Token: string;
+    Correo: string; // email
+  };
 }
 
-export interface LuzDelSurInvoice {
-  invoiceNumber?: string;
-  issueDate?: string;
-  dueDate?: string;
-  totalAmount?: number;
-  status?: string;
-  period?: string;
-  supplyNumber?: string;
-  consumption?: number; // kWh
-  [key: string]: unknown;
+export interface LuzDelSurSuppliesResponse {
+  success: boolean;
+  datos: {
+    codeHTTP: number;
+    codigo: string;
+    suministros: LuzDelSurSupply[];
+    mensajeUsuario: string | null;
+  } | null;
 }
 
 export interface LuzDelSurSupply {
-  supplyNumber?: string;
-  address?: string;
-  district?: string;
+  direccion: string; // Address
+  propietario: string; // "N" or "S" (owner flag)
+  suministro: number; // Supply number
+  muestraAfiliacionRecibo: boolean;
+  muestraDesafiliacionRecibo: boolean;
+}
+
+// ============ Latest Invoice ============
+export interface LuzDelSurLatestInvoiceRequest {
+  request: {
+    Token: string;
+    Correo: string; // email
+    Suministro: string; // supply number
+  };
+}
+
+export interface LuzDelSurLatestInvoiceResponse {
+  success: boolean;
+  datos: {
+    codeHTTP: number;
+    codigo: string;
+    consumoEnergia: number; // Energy consumption (kWh)
+    consumoPotencia: number; // Power consumption
+    deudaVencida: number; // Overdue debt
+    igv: number; // Tax (IGV)
+    mensaje: string | null;
+    noAfectoIGV: number; // Non-taxable amount
+    ordinario: boolean; // Regular invoice flag
+    otros: number; // Other charges
+    otrosConceptos: number; // Other concepts
+    puedePagar: boolean; // Can pay flag
+    subTotal: number; // Subtotal
+    totalMes: number; // Monthly total
+    totalPagar: number; // Total to pay
+    ultimaFacturacion: string; // Last billing period (e.g., "Diciembre 2025")
+    saldoPendiente: number; // Outstanding balance
+    ultimoPago: number; // Last payment amount
+    fechaUltimoPago: string; // Last payment date (DD/MM/YYYY)
+  } | null;
 }

@@ -23,13 +23,30 @@ async function main() {
     console.log("1. Attempting user login...");
     const loginResponse = await luzdelsur.login(email, password);
 
-    console.log("\n📋 Login response:");
-    console.log(JSON.stringify(loginResponse, null, 2));
+    if (!luzdelsur.isAuthenticated()) {
+      console.error("❌ Login failed:", loginResponse);
+      process.exit(1);
+    }
+    console.log("   ✅ Authenticated!\n");
 
-    if (luzdelsur.isAuthenticated()) {
-      console.log("\n✅ Authenticated!");
-    } else {
-      console.log("\n⚠️ Login may have failed");
+    // Get supplies
+    console.log("2. Fetching supplies...");
+    const suppliesResponse = await luzdelsur.getSupplies();
+    console.log("\n📋 Supplies response:");
+    console.log(JSON.stringify(suppliesResponse, null, 2));
+
+    // Get latest invoice for first supply (if available)
+    const supplies = suppliesResponse.datos?.suministros;
+    if (suppliesResponse.success && supplies?.length) {
+      const firstSupply = supplies[0];
+      const supplyNumber = String(firstSupply?.suministro);
+
+      console.log(
+        `\n3. Fetching latest invoice for supply: ${supplyNumber}...`
+      );
+      const invoiceResponse = await luzdelsur.getLatestInvoice(supplyNumber);
+      console.log("\n📋 Latest invoice response:");
+      console.log(JSON.stringify(invoiceResponse, null, 2));
     }
   } catch (error) {
     console.error("❌ Error:", error);
