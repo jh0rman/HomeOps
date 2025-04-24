@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "test:sedapal": "bun run src/scripts/test-sedapal.ts",
-    "test:luzdelsur": "bun run src/scripts/test-luzdelsur.ts"
+    "test:luzdelsur": "bun run src/scripts/test-luzdelsur.ts",
+    "test:calidda": "bun run src/scripts/test-calidda.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"
