@@ -32,14 +32,49 @@ export interface CaliddaTokenResponse {
   expireDate: string; // MM/DD/YYYY HH:mm:ss
 }
 
-// ============ Invoices (to be discovered) ============
-export interface CaliddaInvoice {
-  invoiceNumber?: string;
-  issueDate?: string;
-  dueDate?: string;
-  totalAmount?: number;
-  status?: string;
-  period?: string;
-  consumption?: number; // m³
-  [key: string]: unknown;
+// ============ Accounts ============
+export interface CaliddaAccountsResponse {
+  valid: boolean;
+  message: string | null;
+  detail: string | null;
+  data: CaliddaAccount[] | null;
+  warning: boolean;
+  intercept: boolean;
+  codeError: number;
+}
+
+export interface CaliddaAccount {
+  clientCode: string;
+  interlocutorId: string;
+  installationNumber: string;
+  isMain: boolean;
+  operationNumber: string | null;
+}
+
+// ============ Account Statement ============
+export interface CaliddaAccountStatementResponse {
+  valid: boolean;
+  message: string | null;
+  detail: string | null;
+  data: CaliddaAccountStatement | null;
+  warning: boolean;
+  intercept: boolean;
+  codeError: number;
+}
+
+export interface CaliddaAccountStatement {
+  lastBilledAmount: number; // Last invoice amount
+  lastBillDueDate: string; // ISO datetime (e.g., "2025-12-26T00:00:00")
+  expiredBillCount: number; // Number of expired bills
+  lastPaymentAmount: number; // Last payment amount
+  lastPaymentDate: string; // ISO datetime
+  totalDebt: number; // Total outstanding debt
+  expiredDebt: number; // Expired debt amount
+  cancelDate: string; // Cut-off date (DD/MM/YYYY)
+  currencySymbol: string; // e.g., "S/"
+  serviceState: string; // e.g., "ACTIVO"
+  suspensionDate: string; // YYYYMMDD format
+  suspensionReason: string;
+  debtMessage: string | null; // Warning message about debt
+  summaryInfo: unknown | null;
 }

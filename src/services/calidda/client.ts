@@ -7,9 +7,12 @@ import type {
   CaliddaLoginRequest,
   CaliddaLoginResponse,
   CaliddaTokenResponse,
+  CaliddaAccountsResponse,
+  CaliddaAccountStatementResponse,
 } from "./types";
 
 const BASE_URL = "https://appadmin.calidda.com.pe/Back/api";
+const BASE_URL_OV = "https://appadmin.calidda.com.pe/BackOV/api";
 
 export class CaliddaClient {
   private accessToken: string | null = null;
@@ -122,16 +125,48 @@ export class CaliddaClient {
   }
 
   /**
-   * Gets the user's invoices
-   * TODO: Implement when we discover the endpoint
+   * Gets the authenticated headers with Bearer token
    */
-  async getInvoices(): Promise<unknown> {
-    if (!this.isAuthenticated()) {
+  private getAuthHeaders(): Record<string, string> {
+    if (!this.accessToken) {
       throw new Error("User not authenticated. Call login() first.");
     }
-    throw new Error(
-      "Not implemented yet - need to discover the invoices endpoint"
+    return {
+      Accept: "application/json, text/plain, */*",
+      Authorization: `Bearer ${this.accessToken}`,
+    };
+  }
+
+  /**
+   * Lists user's accounts
+   */
+  async getAccounts(): Promise<CaliddaAccountsResponse> {
+    const response = await fetch(`${BASE_URL_OV}/Account/List`, {
+      method: "GET",
+      headers: this.getAuthHeaders(),
+    });
+
+    const data = (await response.json()) as CaliddaAccountsResponse;
+    return data;
+  }
+
+  /**
+   * Gets account statement with invoices
+   * @param clientCode - The client code
+   */
+  async getAccountStatement(
+    clientCode: string
+  ): Promise<CaliddaAccountStatementResponse> {
+    const response = await fetch(
+      `${BASE_URL_OV}/Account/GetAccountStatement?clientCode=${clientCode}`,
+      {
+        method: "GET",
+        headers: this.getAuthHeaders(),
+      }
     );
+
+    const data = (await response.json()) as CaliddaAccountStatementResponse;
+    return data;
   }
 }
 

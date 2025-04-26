@@ -19,25 +19,35 @@ async function main() {
   }
 
   try {
-    // Login (request access + get token)
+    // Login
     console.log("1. Attempting login...");
-    const { accessResponse, tokenResponse } = await calidda.login(
-      email,
-      password
-    );
+    await calidda.login(email, password);
 
-    console.log("\n📋 Access response:");
-    console.log(JSON.stringify(accessResponse, null, 2));
-
-    if (tokenResponse) {
-      console.log("\n📋 Token response:");
-      console.log(JSON.stringify(tokenResponse, null, 2));
+    if (!calidda.isAuthenticated()) {
+      console.error("❌ Login failed");
+      process.exit(1);
     }
+    console.log("   ✅ Authenticated!\n");
 
-    if (calidda.isAuthenticated()) {
-      console.log("\n✅ Authenticated!");
-    } else {
-      console.log("\n⚠️ Authentication may have failed");
+    // Get accounts
+    console.log("2. Fetching accounts...");
+    const accountsResponse = await calidda.getAccounts();
+    console.log("\n📋 Accounts response:");
+    console.log(JSON.stringify(accountsResponse, null, 2));
+
+    // Get account statement for first account (if available)
+    const accounts = accountsResponse.data;
+    if (accountsResponse.valid && accounts?.length) {
+      const firstAccount = accounts[0];
+
+      console.log(
+        `\n3. Fetching account statement for: ${firstAccount?.clientCode}...`
+      );
+      const statementResponse = await calidda.getAccountStatement(
+        firstAccount?.clientCode ?? ""
+      );
+      console.log("\n📋 Account statement response:");
+      console.log(JSON.stringify(statementResponse, null, 2));
     }
   } catch (error) {
     console.error("❌ Error:", error);
