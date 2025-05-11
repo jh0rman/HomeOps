@@ -2,11 +2,6 @@ name: Send Email
 
 on:
   workflow_dispatch:
-    inputs:
-      email_to:
-        description: "Email recipient address"
-        required: true
-        type: string
 
 jobs:
   send-email:
@@ -24,9 +19,15 @@ jobs:
       - name: Install dependencies
         run: bun i
 
-      - name: Send email
+      - name: Send invoice report email
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          EMAIL_TO: ${{ github.event.inputs.email_to }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
           EMAIL_FROM: ${{ vars.EMAIL_FROM }}
+          SEDAPAL_EMAIL: ${{ secrets.SEDAPAL_EMAIL }}
+          SEDAPAL_PASSWORD: ${{ secrets.SEDAPAL_PASSWORD }}
+          LUZDELSUR_EMAIL: ${{ secrets.LUZDELSUR_EMAIL }}
+          LUZDELSUR_PASSWORD: ${{ secrets.LUZDELSUR_PASSWORD }}
+          CALIDDA_EMAIL: ${{ secrets.CALIDDA_EMAIL }}
+          CALIDDA_PASSWORD: ${{ secrets.CALIDDA_PASSWORD }}
         run: bun src/scripts/send-email.ts
