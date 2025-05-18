@@ -19,7 +19,7 @@ interface InvoiceReport {
   };
   gas: {
     accounts: unknown[];
-    statements: unknown[];
+    data: unknown[];
   };
 }
 
@@ -90,20 +90,23 @@ async function fetchGasData(): Promise<InvoiceReport["gas"]> {
 
   if (!calidda.isAuthenticated()) {
     console.log("   ⚠️ Cálidda login failed");
-    return { accounts: [], statements: [] };
+    return { accounts: [], data: [] };
   }
 
   const accountsResponse = await calidda.getAccounts();
   const accounts = accountsResponse.data || [];
 
-  // Fetch statement for each account
-  const statements: unknown[] = [];
+  // Fetch basic data and statement for each account
+  const data: unknown[] = [];
   for (const account of accounts) {
-    const statementResponse = await calidda.getAccountStatement(
-      account.clientCode
-    );
-    statements.push({
+    const [basicDataResponse, statementResponse] = await Promise.all([
+      calidda.getBasicData(account.clientCode),
+      calidda.getAccountStatement(account.clientCode),
+    ]);
+
+    data.push({
       account,
+      basicData: basicDataResponse.data,
       statement: statementResponse.data,
     });
   }
@@ -112,7 +115,7 @@ async function fetchGasData(): Promise<InvoiceReport["gas"]> {
 
   return {
     accounts,
-    statements,
+    data,
   };
 }
 

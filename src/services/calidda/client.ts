@@ -9,6 +9,7 @@ import type {
   CaliddaTokenResponse,
   CaliddaAccountsResponse,
   CaliddaAccountStatementResponse,
+  CaliddaBasicDataResponse,
 } from "./types";
 
 const BASE_URL = "https://appadmin.calidda.com.pe/Back/api";
@@ -147,6 +148,23 @@ export class CaliddaClient {
     });
 
     const data = (await response.json()) as CaliddaAccountsResponse;
+    return data;
+  }
+
+  /**
+   * Gets basic data for an account (supply info)
+   * @param clientCode - The client code
+   */
+  async getBasicData(clientCode: string): Promise<CaliddaBasicDataResponse> {
+    const response = await fetch(
+      `${BASE_URL_OV}/Account/GetBasicDataOfuscado?clientCode=${clientCode}`,
+      {
+        method: "GET",
+        headers: this.getAuthHeaders(),
+      }
+    );
+
+    const data = (await response.json()) as CaliddaBasicDataResponse;
     return data;
   }
 
