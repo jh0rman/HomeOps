@@ -3,27 +3,18 @@
  */
 
 import { Resend } from "resend";
+import { render } from "@react-email/components";
 import { sedapal } from "../services/sedapal";
 import { luzdelsur } from "../services/luzdelsur";
 import { calidda } from "../services/calidda";
+import {
+  MonthlyReportEmail,
+  type MonthlyReportProps,
+} from "../emails/MonthlyReport";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-interface InvoiceReport {
-  water: {
-    invoices: unknown[];
-  };
-  electricity: {
-    supplies: unknown[];
-    invoices: unknown[];
-  };
-  gas: {
-    accounts: unknown[];
-    data: unknown[];
-  };
-}
-
-async function fetchWaterData(): Promise<InvoiceReport["water"]> {
+async function fetchWaterData(): Promise<MonthlyReportProps["data"]["water"]> {
   console.log("\n🚰 Fetching SEDAPAL data...");
 
   const email = process.env.SEDAPAL_EMAIL!;
@@ -40,11 +31,14 @@ async function fetchWaterData(): Promise<InvoiceReport["water"]> {
   console.log("   ✅ SEDAPAL data fetched");
 
   return {
-    invoices: invoicesResponse.bRESP || [],
+    invoices: (invoicesResponse.bRESP ||
+      []) as MonthlyReportProps["data"]["water"]["invoices"],
   };
 }
 
-async function fetchElectricityData(): Promise<InvoiceReport["electricity"]> {
+async function fetchElectricityData(): Promise<
+  MonthlyReportProps["data"]["electricity"]
+> {
   console.log("\n💡 Fetching Luz del Sur data...");
 
   const email = process.env.LUZDELSUR_EMAIL!;
@@ -54,33 +48,35 @@ async function fetchElectricityData(): Promise<InvoiceReport["electricity"]> {
 
   if (!luzdelsur.isAuthenticated()) {
     console.log("   ⚠️ Luz del Sur login failed");
-    return { supplies: [], invoices: [] };
+    return { invoices: [] };
   }
 
   const suppliesResponse = await luzdelsur.getSupplies();
   const supplies = suppliesResponse.datos?.suministros || [];
 
   // Fetch latest invoice for each supply
-  const invoices: unknown[] = [];
+  const invoices: MonthlyReportProps["data"]["electricity"]["invoices"] = [];
   for (const supply of supplies) {
     const invoiceResponse = await luzdelsur.getLatestInvoice(
       String(supply.suministro)
     );
     invoices.push({
-      supply,
-      invoice: invoiceResponse.datos,
+      supply: {
+        suministro: supply.suministro,
+      },
+      invoice:
+        invoiceResponse.datos as MonthlyReportProps["data"]["electricity"]["invoices"][0]["invoice"],
     });
   }
 
   console.log("   ✅ Luz del Sur data fetched");
 
   return {
-    supplies,
     invoices,
   };
 }
 
-async function fetchGasData(): Promise<InvoiceReport["gas"]> {
+async function fetchGasData(): Promise<MonthlyReportProps["data"]["gas"]> {
   console.log("\n🔥 Fetching Cálidda data...");
 
   const email = process.env.CALIDDA_EMAIL!;
@@ -90,14 +86,14 @@ async function fetchGasData(): Promise<InvoiceReport["gas"]> {
 
   if (!calidda.isAuthenticated()) {
     console.log("   ⚠️ Cálidda login failed");
-    return { accounts: [], data: [] };
+    return { data: [] };
   }
 
   const accountsResponse = await calidda.getAccounts();
   const accounts = accountsResponse.data || [];
 
   // Fetch basic data and statement for each account
-  const data: unknown[] = [];
+  const data: MonthlyReportProps["data"]["gas"]["data"] = [];
   for (const account of accounts) {
     const [basicDataResponse, statementResponse] = await Promise.all([
       calidda.getBasicData(account.clientCode),
@@ -105,16 +101,25 @@ async function fetchGasData(): Promise<InvoiceReport["gas"]> {
     ]);
 
     data.push({
-      account,
-      basicData: basicDataResponse.data,
-      statement: statementResponse.data,
+      account: {
+        clientCode: account.clientCode,
+      },
+      basicData: basicDataResponse.data
+        ? {
+            supplyAddress: {
+              houseFloorNumber:
+                basicDataResponse.data.supplyAddress?.houseFloorNumber || "-",
+            },
+          }
+        : null,
+      statement:
+        statementResponse.data as MonthlyReportProps["data"]["gas"]["data"][0]["statement"],
     });
   }
 
   console.log("   ✅ Cálidda data fetched");
 
   return {
-    accounts,
     data,
   };
 }
@@ -148,7 +153,10 @@ async function main() {
     const electricity = await fetchElectricityData();
     const gas = await fetchGasData();
 
-    const report: InvoiceReport = { water, electricity, gas };
+    const reportData: MonthlyReportProps["data"] = { water, electricity, gas };
+
+    // Render email HTML
+    const emailHtml = await render(MonthlyReportEmail({ data: reportData }));
 
     // Send email
     console.log("\n📧 Sending email report...");
@@ -159,12 +167,8 @@ async function main() {
     const { data, error } = await resend.emails.send({
       from,
       to: [to],
-      subject: "HomeOps - Invoice Report",
-      html: `
-        <h1>HomeOps Invoice Report</h1>
-        <p>This is your utility bills summary.</p>
-        <pre>${JSON.stringify(report, null, 2)}</pre>
-      `,
+      subject: "HomeOps - Resumen de Facturación",
+      html: emailHtml,
     });
 
     if (error) {
