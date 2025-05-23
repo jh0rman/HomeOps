@@ -1,6 +1,9 @@
 name: Send Email
 
 on:
+  schedule:
+    # Run at 8:00 AM Lima time (UTC-5) on the 26th of every month
+    - cron: "0 13 26 * *"
   workflow_dispatch:
 
 jobs:
