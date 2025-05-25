@@ -119,12 +119,10 @@ async function main() {
     );
 
     console.log("\n" + "═".repeat(60));
-    console.log("⚠️  WHAT'S MISSING FROM API:");
+    console.log("⚠️  WHAT'S MISSING:");
     console.log("═".repeat(60));
-    console.log("1. Meter readings per floor (startReading, endReading)");
-    console.log("   → Need to be provided by user or stored somewhere");
-    console.log("2. Price per kWh (currently hardcoded to S/0.605)");
-    console.log("   → API provides consumoEnergia but not the rate");
+    console.log("• Meter readings per floor (startReading, endReading)");
+    console.log("  → Need to be provided by user or stored somewhere");
   } catch (error) {
     console.error("❌ Error:", error);
   }

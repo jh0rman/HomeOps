@@ -24,13 +24,20 @@ jobs:
 
       - name: Send invoice report email
         env:
+          # Email configuration
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           EMAIL_FROM: ${{ vars.EMAIL_FROM }}
+          # SEDAPAL credentials
           SEDAPAL_EMAIL: ${{ secrets.SEDAPAL_EMAIL }}
           SEDAPAL_PASSWORD: ${{ secrets.SEDAPAL_PASSWORD }}
+          # Luz del Sur credentials
           LUZDELSUR_EMAIL: ${{ secrets.LUZDELSUR_EMAIL }}
           LUZDELSUR_PASSWORD: ${{ secrets.LUZDELSUR_PASSWORD }}
+          # Cálidda credentials
           CALIDDA_EMAIL: ${{ secrets.CALIDDA_EMAIL }}
           CALIDDA_PASSWORD: ${{ secrets.CALIDDA_PASSWORD }}
+          # Meter readings JSON (update monthly)
+          # Format: {"month":"12/2025","floor1":{"start":1304.3,"end":1400},"floor2":{"start":1927.2,"end":2050},"floor3":{"start":495.3,"end":540}}
+          METER_READINGS: ${{ vars.METER_READINGS }}
         run: bun src/scripts/send-email.ts

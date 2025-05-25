@@ -11,6 +11,15 @@ import {
   MonthlyReportEmail,
   type MonthlyReportProps,
 } from "../emails/MonthlyReport";
+import {
+  parseMeterReadingsFromEnv,
+  configToMeterReadings,
+  validateMeterReadingsFreshness,
+} from "../utils/meter-readings";
+import {
+  calculateElectricityDistribution,
+  extractBillFromApiResponse,
+} from "../utils/electricity-calculator";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -36,9 +45,16 @@ async function fetchWaterData(): Promise<MonthlyReportProps["data"]["water"]> {
   };
 }
 
-async function fetchElectricityData(): Promise<
-  MonthlyReportProps["data"]["electricity"]
-> {
+async function fetchElectricityData(): Promise<{
+  invoices: MonthlyReportProps["data"]["electricity"]["invoices"];
+  fullApiInvoices: Array<{
+    consumoEnergia: number;
+    otrosConceptos: number;
+    igv: number;
+    totalPagar: number;
+    ultimaFacturacion: string;
+  }>;
+}> {
   console.log("\n💡 Fetching Luz del Sur data...");
 
   const email = process.env.LUZDELSUR_EMAIL!;
@@ -48,7 +64,7 @@ async function fetchElectricityData(): Promise<
 
   if (!luzdelsur.isAuthenticated()) {
     console.log("   ⚠️ Luz del Sur login failed");
-    return { invoices: [] };
+    return { invoices: [], fullApiInvoices: [] };
   }
 
   const suppliesResponse = await luzdelsur.getSupplies();
@@ -56,10 +72,25 @@ async function fetchElectricityData(): Promise<
 
   // Fetch latest invoice for each supply
   const invoices: MonthlyReportProps["data"]["electricity"]["invoices"] = [];
+  const fullApiInvoices: Array<{
+    consumoEnergia: number;
+    otrosConceptos: number;
+    igv: number;
+    totalPagar: number;
+    ultimaFacturacion: string;
+  }> = [];
+
   for (const supply of supplies) {
     const invoiceResponse = await luzdelsur.getLatestInvoice(
       String(supply.suministro)
     );
+
+    if (invoiceResponse.datos) {
+      fullApiInvoices.push(
+        invoiceResponse.datos as (typeof fullApiInvoices)[0]
+      );
+    }
+
     invoices.push({
       supply: {
         suministro: supply.suministro,
@@ -73,6 +104,7 @@ async function fetchElectricityData(): Promise<
 
   return {
     invoices,
+    fullApiInvoices,
   };
 }
 
@@ -147,11 +179,57 @@ async function main() {
     }
   }
 
+  // Parse meter readings from environment
+  const meterConfig = parseMeterReadingsFromEnv();
+  if (!meterConfig) {
+    console.error("❌ Missing or invalid METER_READINGS variable");
+    console.error(
+      '   Format: {"month":"12/2025","floor1":{"start":1304.3,"end":1400},...}'
+    );
+    process.exit(1);
+  }
+
   try {
     // Fetch all data
     const water = await fetchWaterData();
     const electricity = await fetchElectricityData();
     const gas = await fetchGasData();
+
+    // Validate meter readings freshness against billing period
+    const billingPeriod = electricity.invoices[0]?.invoice?.ultimaFacturacion;
+    if (billingPeriod) {
+      const freshnessCheck = validateMeterReadingsFreshness(
+        meterConfig.month,
+        billingPeriod
+      );
+
+      if (!freshnessCheck.isValid) {
+        console.error(`❌ ${freshnessCheck.message}`);
+        process.exit(1);
+      }
+      console.log(`\n✅ ${freshnessCheck.message}`);
+    }
+
+    // Calculate electricity distribution per floor
+    if (electricity.fullApiInvoices.length > 0) {
+      const apiInvoice = electricity.fullApiInvoices[0]!;
+      const billData = extractBillFromApiResponse(apiInvoice);
+      const meterReadings = configToMeterReadings(meterConfig);
+      const distribution = calculateElectricityDistribution(
+        billData,
+        meterReadings
+      );
+
+      console.log("\n⚡ Electricity distribution calculated");
+      console.log(
+        `   Total from meters: ${distribution.meterTotal.toFixed(1)} kWh`
+      );
+      distribution.floors.forEach((floor) => {
+        console.log(
+          `   Floor ${floor.floor}: ${floor.consumption.toFixed(1)} kWh (${(floor.percentage * 100).toFixed(1)}%)`
+        );
+      });
+    }
 
     const reportData: MonthlyReportProps["data"] = { water, electricity, gas };
 
