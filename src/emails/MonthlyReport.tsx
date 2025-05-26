@@ -1,5 +1,6 @@
 /**
  * Monthly Report Email Template
+ * Floor-based expense distribution with meter readings
  */
 
 import {
@@ -12,6 +13,8 @@ import {
   Preview,
   Section,
   Text,
+  Row,
+  Column,
 } from "@react-email/components";
 
 // --- Interfaces ---
@@ -22,6 +25,12 @@ interface WaterInvoice {
   recibo: string;
 }
 
+interface SubMeterReading {
+  floor: number;
+  startReading: number;
+  endReading: number;
+}
+
 interface ElectricityInvoice {
   supply: {
     suministro: number;
@@ -29,6 +38,8 @@ interface ElectricityInvoice {
   invoice: {
     totalPagar: number;
     consumoEnergia: number;
+    igv: number;
+    otrosConceptos: number;
     ultimaFacturacion: string;
   };
 }
@@ -51,7 +62,10 @@ interface GasData {
 export interface MonthlyReportProps {
   data: {
     water: { invoices: WaterInvoice[] };
-    electricity: { invoices: ElectricityInvoice[] };
+    electricity: {
+      invoices: ElectricityInvoice[];
+      subMeters: SubMeterReading[];
+    };
     gas: { data: GasData[] };
   };
 }
@@ -61,136 +75,263 @@ const currency = (amount: number) =>
   new Intl.NumberFormat("es-PE", {
     style: "currency",
     currency: "PEN",
+    minimumFractionDigits: 2,
   }).format(amount);
-
-const formatDate = (dateString: string) => {
-  if (!dateString) return "-";
-  const date = new Date(dateString);
-  return isNaN(date.getTime()) ? dateString : date.toLocaleDateString("es-PE");
-};
 
 // --- Styles ---
 const main = {
-  backgroundColor: "#f6f9fc",
+  backgroundColor: "#f8fafc",
   fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif',
+  padding: "40px 8px",
 };
 
 const container = {
-  backgroundColor: "#ffffff",
   margin: "0 auto",
-  padding: "20px",
-  maxWidth: "465px",
-  borderRadius: "8px",
-  border: "1px solid #eaeaea",
+  maxWidth: "500px",
 };
 
-const heading = {
-  color: "#1f2937",
+const header = {
+  textAlign: "center" as const,
+  marginBottom: "32px",
+};
+
+const title = {
   fontSize: "24px",
   fontWeight: "bold",
-  textAlign: "center" as const,
-  margin: "30px 0",
+  color: "#1e293b",
+  margin: "0",
+};
+
+const subtitle = {
+  fontSize: "10px",
+  color: "#94a3b8",
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.1em",
+  marginTop: "4px",
 };
 
 const totalCard = {
-  backgroundColor: "#f8fafc",
-  border: "1px solid #e2e8f0",
-  borderRadius: "8px",
+  backgroundColor: "#1e293b",
+  borderRadius: "16px",
   padding: "24px",
   textAlign: "center" as const,
-  margin: "24px 0",
+  marginBottom: "32px",
 };
 
 const totalLabel = {
-  color: "#6b7280",
-  fontSize: "12px",
+  color: "#94a3b8",
+  fontSize: "10px",
   fontWeight: "bold",
   textTransform: "uppercase" as const,
-  letterSpacing: "0.05em",
-  margin: "0",
+  letterSpacing: "0.1em",
+  margin: "0 0 4px 0",
 };
 
 const totalAmount = {
-  color: "#1e293b",
-  fontSize: "36px",
+  color: "#ffffff",
+  fontSize: "42px",
   fontWeight: "800",
-  margin: "8px 0 0 0",
+  margin: "0 0 8px 0",
+};
+
+const totalBadge = {
+  backgroundColor: "rgba(71, 85, 105, 0.5)",
+  color: "#cbd5e1",
+  fontSize: "11px",
+  padding: "4px 12px",
+  borderRadius: "999px",
 };
 
 const sectionTitle = {
-  display: "flex",
-  alignItems: "center",
+  fontSize: "16px",
+  fontWeight: "bold",
+  color: "#334155",
+  margin: "0 0 16px 0",
+};
+
+const floorCard = {
+  backgroundColor: "#ffffff",
+  border: "1px solid #e2e8f0",
+  borderRadius: "12px",
   marginBottom: "16px",
+  overflow: "hidden",
 };
 
-const iconCircle = (color: string) => ({
-  backgroundColor: color,
+const floorHeader = {
+  backgroundColor: "#f8fafc",
+  padding: "16px",
+  borderBottom: "1px solid #e2e8f0",
+};
+
+const floorNumber = {
+  backgroundColor: "#e0e7ff",
+  color: "#4338ca",
+  width: "28px",
+  height: "28px",
   borderRadius: "50%",
-  width: "40px",
-  height: "40px",
-  display: "inline-block",
   textAlign: "center" as const,
-  lineHeight: "40px",
-  marginRight: "12px",
-  fontSize: "20px",
-});
-
-const sectionHeading = {
-  color: "#1f2937",
-  fontSize: "18px",
+  lineHeight: "28px",
   fontWeight: "bold",
-  margin: "0",
-  display: "inline-block",
+  fontSize: "12px",
 };
 
-const sectionAmount = {
-  color: "#1f2937",
-  fontSize: "18px",
+const floorBody = {
+  padding: "16px",
+};
+
+const elecLabel = {
+  fontSize: "11px",
   fontWeight: "bold",
+  color: "#64748b",
+  margin: "0 0 8px 0",
+};
+
+const kwhLabel = {
+  fontSize: "11px",
+  color: "#94a3b8",
+  margin: "0",
   textAlign: "right" as const,
 };
 
-const itemCard = (borderColor: string) => ({
-  borderLeft: `4px solid ${borderColor}`,
-  paddingLeft: "16px",
-  paddingTop: "4px",
-  paddingBottom: "4px",
-  marginTop: "16px",
+const progressBarOuter = {
+  backgroundColor: "#f1f5f9",
+  height: "8px",
+  borderRadius: "4px",
+  marginBottom: "12px",
+};
+
+const progressBarInner = (percent: number) => ({
+  backgroundColor: "#facc15",
+  height: "8px",
+  borderRadius: "4px",
+  width: `${Math.max(percent, 8)}%`,
 });
 
-const itemLabel = {
-  color: "#6b7280",
+const breakdownBox = {
+  backgroundColor: "#f8fafc",
+  border: "1px solid #e2e8f0",
+  borderRadius: "8px",
+  padding: "12px",
+  marginBottom: "12px",
+};
+
+const breakdownLabel = {
+  fontSize: "10px",
+  color: "#94a3b8",
+  margin: "0 0 2px 0",
+};
+
+const breakdownValue = {
   fontSize: "12px",
   fontWeight: "600",
+  color: "#334155",
+  margin: "0",
+};
+
+const serviceBox = (bgColor: string, borderColor: string) => ({
+  backgroundColor: bgColor,
+  border: `1px solid ${borderColor}`,
+  borderRadius: "8px",
+  padding: "10px 12px",
+});
+
+const serviceLabel = {
+  fontSize: "11px",
+  fontWeight: "600",
+  color: "#475569",
+  margin: "0",
+};
+
+const serviceAmount = {
+  fontSize: "12px",
+  fontWeight: "bold",
+  color: "#1e293b",
+  margin: "0",
+};
+
+const noteBox = {
+  backgroundColor: "#eff6ff",
+  border: "1px solid #dbeafe",
+  borderRadius: "8px",
+  padding: "12px",
+  marginTop: "8px",
+};
+
+const noteText = {
+  fontSize: "10px",
+  color: "#1e40af",
+  margin: "0",
+  lineHeight: "1.5",
+};
+
+const receiptSection = {
+  marginTop: "40px",
+};
+
+const receiptTitle = {
+  fontSize: "10px",
+  fontWeight: "bold",
+  color: "#94a3b8",
   textTransform: "uppercase" as const,
+  letterSpacing: "0.1em",
+  margin: "0 0 16px 0",
+};
+
+const receiptCard = {
+  backgroundColor: "#ffffff",
+  border: "1px solid #e2e8f0",
+  borderRadius: "12px",
+  overflow: "hidden",
+};
+
+const receiptRow = {
+  padding: "14px 16px",
+  borderBottom: "1px solid #f1f5f9",
+};
+
+const receiptIcon = (bgColor: string) => ({
+  backgroundColor: bgColor,
+  width: "36px",
+  height: "36px",
+  borderRadius: "50%",
+  textAlign: "center" as const,
+  lineHeight: "36px",
+  fontSize: "14px",
+});
+
+const receiptName = {
+  fontSize: "13px",
+  fontWeight: "bold",
+  color: "#334155",
   margin: "0",
 };
 
-const itemValue = {
-  color: "#1f2937",
-  fontSize: "14px",
+const receiptDetail = {
+  fontSize: "10px",
+  color: "#94a3b8",
   margin: "0",
 };
 
-const itemSubtext = {
-  color: "#6b7280",
-  fontSize: "14px",
+const receiptAmount = {
+  fontSize: "13px",
+  fontWeight: "bold",
+  color: "#334155",
   margin: "0",
 };
 
 const footer = {
-  color: "#9ca3af",
-  fontSize: "12px",
   textAlign: "center" as const,
+  marginTop: "32px",
+};
+
+const footerText = {
+  fontSize: "10px",
+  color: "#94a3b8",
   margin: "0",
 };
 
-const hr = {
-  borderColor: "#e5e7eb",
-  margin: "26px 0",
-};
-
 export const MonthlyReportEmail = ({ data }: MonthlyReportProps) => {
+  // Totals
   const totalWater = data.water.invoices.reduce(
     (acc, curr) => acc + curr.total_fact,
     0
@@ -205,154 +346,263 @@ export const MonthlyReportEmail = ({ data }: MonthlyReportProps) => {
   );
   const grandTotal = totalWater + totalElec + totalGas;
 
+  // Electricity breakdown
+  const elecInvoice = data.electricity.invoices[0];
+  const billEnergyCost = elecInvoice?.invoice?.consumoEnergia || 0;
+  const billIgv = elecInvoice?.invoice?.igv || 0;
+  const billOthers = elecInvoice?.invoice?.otrosConceptos || 0;
+
+  // Meter readings
+  const floorReadings = data.electricity.subMeters.map((m) => ({
+    floor: m.floor,
+    kwh: m.endReading - m.startReading,
+  }));
+  const totalKwh = floorReadings.reduce((acc, curr) => acc + curr.kwh, 0);
+
+  // Floor breakdown
+  const floorBreakdown = [1, 2, 3].map((floorNum) => {
+    const reading = floorReadings.find((r) => r.floor === floorNum);
+    const kwh = reading?.kwh || 0;
+    const share = totalKwh > 0 ? kwh / totalKwh : 0;
+
+    const elecEnergy = billEnergyCost * share;
+    const elecIgv = billIgv * share;
+    const elecOthers = billOthers / 3;
+    const elecTotal = elecEnergy + elecIgv + elecOthers;
+
+    const waterTotal = totalWater / 3;
+
+    const gasBill = data.gas.data.find(
+      (g) =>
+        g.basicData?.supplyAddress?.houseFloorNumber === floorNum.toString()
+    );
+    const gasTotal = gasBill?.statement.totalDebt || 0;
+
+    return {
+      floor: floorNum,
+      kwh,
+      share,
+      elecEnergy,
+      elecIgv,
+      elecOthers,
+      elecTotal,
+      water: waterTotal,
+      gas: gasTotal,
+      total: elecTotal + waterTotal + gasTotal,
+    };
+  });
+
+  const waterInvoice = data.water.invoices[0];
+
   return (
     <Html>
       <Head />
-      <Preview>
-        HomeOps - Resumen de facturación: {currency(grandTotal)}
-      </Preview>
+      <Preview>HomeOps - Total a pagar: {currency(grandTotal)}</Preview>
       <Body style={main}>
         <Container style={container}>
           {/* Header */}
-          <Heading style={heading}>
-            <span style={{ color: "#2563eb" }}>Home</span>Ops Reporte
-          </Heading>
-
-          <Text style={{ ...footer, marginBottom: "24px" }}>
-            Resumen de facturación mensual.
-          </Text>
+          <Section style={header}>
+            <Heading style={title}>
+              <span style={{ color: "#4f46e5" }}>Home</span>Ops
+            </Heading>
+            <Text style={subtitle}>Reporte Mensual</Text>
+          </Section>
 
           {/* Total Card */}
           <Section style={totalCard}>
             <Text style={totalLabel}>Total a Pagar</Text>
             <Text style={totalAmount}>{currency(grandTotal)}</Text>
-            <Text style={{ ...footer, marginTop: "8px" }}>
-              Vence a finales de mes
+            <span style={totalBadge}>Vence a finales de mes</span>
+          </Section>
+
+          {/* Distribution Section */}
+          <Text style={sectionTitle}>📊 Distribución de Gastos</Text>
+
+          {floorBreakdown.map((floor) => (
+            <Section key={floor.floor} style={floorCard}>
+              {/* Floor Header */}
+              <Row style={floorHeader}>
+                <Column style={{ width: "36px" }}>
+                  <div style={floorNumber}>{floor.floor}</div>
+                </Column>
+                <Column>
+                  <Text
+                    style={{
+                      fontWeight: "bold",
+                      color: "#334155",
+                      margin: "0",
+                      fontSize: "14px",
+                    }}
+                  >
+                    Piso {floor.floor}
+                  </Text>
+                </Column>
+                <Column style={{ textAlign: "right" }}>
+                  <Text
+                    style={{
+                      fontSize: "18px",
+                      fontWeight: "800",
+                      color: "#1e293b",
+                      margin: "0",
+                    }}
+                  >
+                    {currency(floor.total)}
+                  </Text>
+                </Column>
+              </Row>
+
+              {/* Floor Body */}
+              <Section style={floorBody}>
+                {/* Electricity Label Row */}
+                <Row>
+                  <Column>
+                    <Text style={elecLabel}>⚡ Electricidad</Text>
+                  </Column>
+                  <Column style={{ textAlign: "right" }}>
+                    <Text style={kwhLabel}>{floor.kwh.toFixed(1)} kWh</Text>
+                  </Column>
+                </Row>
+
+                {/* Progress Bar */}
+                <div style={progressBarOuter}>
+                  <div style={progressBarInner(floor.share * 100)} />
+                </div>
+
+                {/* Electricity Breakdown */}
+                <Section style={breakdownBox}>
+                  <Row>
+                    <Column style={{ width: "33%" }}>
+                      <Text style={breakdownLabel}>Energía</Text>
+                      <Text style={breakdownValue}>
+                        {currency(floor.elecEnergy)}
+                      </Text>
+                    </Column>
+                    <Column style={{ width: "33%" }}>
+                      <Text style={breakdownLabel}>IGV (18%)</Text>
+                      <Text style={breakdownValue}>
+                        {currency(floor.elecIgv)}
+                      </Text>
+                    </Column>
+                    <Column style={{ width: "34%" }}>
+                      <Text style={breakdownLabel}>Fijos</Text>
+                      <Text style={breakdownValue}>
+                        {currency(floor.elecOthers)}
+                      </Text>
+                    </Column>
+                  </Row>
+                </Section>
+
+                {/* Water & Gas Row */}
+                <Row>
+                  <Column style={{ width: "48%", paddingRight: "6px" }}>
+                    <Section style={serviceBox("#eff6ff", "#dbeafe")}>
+                      <Row>
+                        <Column style={{ width: "20px" }}>💧</Column>
+                        <Column>
+                          <Text style={serviceLabel}>Agua</Text>
+                        </Column>
+                        <Column style={{ textAlign: "right" }}>
+                          <Text style={serviceAmount}>
+                            {currency(floor.water)}
+                          </Text>
+                        </Column>
+                      </Row>
+                    </Section>
+                  </Column>
+                  <Column style={{ width: "48%", paddingLeft: "6px" }}>
+                    <Section style={serviceBox("#fff7ed", "#fed7aa")}>
+                      <Row>
+                        <Column style={{ width: "20px" }}>🔥</Column>
+                        <Column>
+                          <Text style={serviceLabel}>Gas</Text>
+                        </Column>
+                        <Column style={{ textAlign: "right" }}>
+                          <Text style={serviceAmount}>
+                            {currency(floor.gas)}
+                          </Text>
+                        </Column>
+                      </Row>
+                    </Section>
+                  </Column>
+                </Row>
+              </Section>
+            </Section>
+          ))}
+
+          {/* Note */}
+          <Section style={noteBox}>
+            <Text style={noteText}>
+              ℹ️ <strong>Nota:</strong> Electricidad calculada por consumo de
+              medidor interno + proporcional del IGV. Conceptos fijos divididos
+              entre 3. Agua dividida equitativamente.
             </Text>
           </Section>
 
-          {/* Electricity */}
-          <Section style={{ margin: "24px 0" }}>
-            <table width="100%">
-              <tr>
-                <td>
-                  <span style={iconCircle("#fef3c7")}>⚡</span>
-                  <span style={sectionHeading}>Electricidad</span>
-                </td>
-                <td style={sectionAmount}>{currency(totalElec)}</td>
-              </tr>
-            </table>
+          {/* Receipts Section */}
+          <Section style={receiptSection}>
+            <Text style={receiptTitle}>Recibos Originales</Text>
 
-            {data.electricity.invoices.map((item, i) => (
-              <div key={i} style={itemCard("#facc15")}>
-                <Text style={itemSubtext}>
-                  Suministro: {item.supply.suministro}
-                </Text>
-                <table width="100%" style={{ marginTop: "4px" }}>
-                  <tr>
-                    <td>
-                      <Text style={itemLabel}>Consumo</Text>
-                      <Text style={itemValue}>
-                        {item.invoice.consumoEnergia} kWh
-                      </Text>
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      <Text style={itemLabel}>Periodo</Text>
-                      <Text style={itemValue}>
-                        {item.invoice.ultimaFacturacion}
-                      </Text>
-                    </td>
-                  </tr>
-                </table>
-              </div>
-            ))}
+            <Section style={receiptCard}>
+              {/* Electricity */}
+              <Row style={receiptRow}>
+                <Column style={{ width: "44px" }}>
+                  <div style={receiptIcon("#fef9c3")}>⚡</div>
+                </Column>
+                <Column>
+                  <Text style={receiptName}>Electricidad</Text>
+                  <Text style={receiptDetail}>
+                    Sum: {elecInvoice?.supply.suministro}
+                  </Text>
+                </Column>
+                <Column style={{ textAlign: "right" }}>
+                  <Text style={receiptAmount}>{currency(totalElec)}</Text>
+                </Column>
+              </Row>
+
+              {/* Water */}
+              <Row style={receiptRow}>
+                <Column style={{ width: "44px" }}>
+                  <div style={receiptIcon("#dbeafe")}>💧</div>
+                </Column>
+                <Column>
+                  <Text style={receiptName}>Agua Potable</Text>
+                  <Text style={receiptDetail}>
+                    Recibo: {waterInvoice?.recibo}
+                  </Text>
+                </Column>
+                <Column style={{ textAlign: "right" }}>
+                  <Text style={receiptAmount}>{currency(totalWater)}</Text>
+                  <Text style={receiptDetail}>{waterInvoice?.volumen} m³</Text>
+                </Column>
+              </Row>
+
+              {/* Gas */}
+              <Row style={{ ...receiptRow, borderBottom: "none" }}>
+                <Column style={{ width: "44px" }}>
+                  <div style={receiptIcon("#fed7aa")}>🔥</div>
+                </Column>
+                <Column>
+                  <Text style={receiptName}>Gas Natural</Text>
+                  <Text style={receiptDetail}>3 Puntos</Text>
+                </Column>
+                <Column style={{ textAlign: "right" }}>
+                  <Text style={receiptAmount}>{currency(totalGas)}</Text>
+                  <Text style={receiptDetail}>Total 3 pisos</Text>
+                </Column>
+              </Row>
+            </Section>
           </Section>
-
-          <Hr style={hr} />
-
-          {/* Water */}
-          <Section style={{ margin: "24px 0" }}>
-            <table width="100%">
-              <tr>
-                <td>
-                  <span style={iconCircle("#dbeafe")}>💧</span>
-                  <span style={sectionHeading}>Agua</span>
-                </td>
-                <td style={sectionAmount}>{currency(totalWater)}</td>
-              </tr>
-            </table>
-
-            {data.water.invoices.map((item, i) => (
-              <div key={i} style={itemCard("#60a5fa")}>
-                <Text style={itemSubtext}>Recibo: {item.recibo}</Text>
-                <table width="100%" style={{ marginTop: "4px" }}>
-                  <tr>
-                    <td>
-                      <Text style={itemLabel}>Volumen</Text>
-                      <Text style={itemValue}>{item.volumen} m³</Text>
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      <Text style={itemLabel}>Vence</Text>
-                      <Text style={itemValue}>
-                        {formatDate(item.vencimiento)}
-                      </Text>
-                    </td>
-                  </tr>
-                </table>
-              </div>
-            ))}
-          </Section>
-
-          <Hr style={hr} />
-
-          {/* Gas */}
-          <Section style={{ margin: "24px 0" }}>
-            <table width="100%">
-              <tr>
-                <td>
-                  <span style={iconCircle("#ffedd5")}>🔥</span>
-                  <span style={sectionHeading}>Gas Natural</span>
-                </td>
-                <td style={sectionAmount}>{currency(totalGas)}</td>
-              </tr>
-            </table>
-
-            {data.gas.data.map((item, i) => (
-              <div key={i} style={itemCard("#fb923c")}>
-                <table width="100%">
-                  <tr>
-                    <td>
-                      <Text style={{ ...itemValue, fontWeight: "500" }}>
-                        Suministro: {parseInt(item.account.clientCode, 10)}
-                      </Text>
-                      <Text style={{ ...itemSubtext, fontSize: "12px" }}>
-                        Piso:{" "}
-                        {item.basicData?.supplyAddress?.houseFloorNumber || "-"}
-                      </Text>
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      <Text style={{ ...itemValue, fontWeight: "bold" }}>
-                        {currency(item.statement.totalDebt)}
-                      </Text>
-                      <Text style={{ ...itemSubtext, fontSize: "12px" }}>
-                        Vence: {formatDate(item.statement.lastBillDueDate)}
-                      </Text>
-                    </td>
-                  </tr>
-                </table>
-              </div>
-            ))}
-          </Section>
-
-          <Hr style={hr} />
 
           {/* Footer */}
-          <Text style={footer}>
-            Generado automáticamente por <strong>HomeOps GitHub Action</strong>
-          </Text>
-          <Text style={{ ...footer, marginTop: "4px" }}>
-            {new Date().toLocaleString("es-PE")}
-          </Text>
+          <Section style={footer}>
+            <Text style={footerText}>
+              Generado por <strong>HomeOps</strong> •{" "}
+              {new Date().toLocaleDateString("es-PE", {
+                month: "long",
+                year: "numeric",
+              })}
+            </Text>
+          </Section>
         </Container>
       </Body>
     </Html>
