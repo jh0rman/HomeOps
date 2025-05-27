@@ -23,6 +23,7 @@ interface WaterInvoice {
   vencimiento: string;
   volumen: number;
   recibo: string;
+  nis_rad: number; // Supply number
 }
 
 interface SubMeterReading {
@@ -40,6 +41,7 @@ interface ElectricityInvoice {
     consumoEnergia: number;
     igv: number;
     otrosConceptos: number;
+    noAfectoIGV: number; // Added for correct total
     ultimaFacturacion: string;
   };
 }
@@ -61,7 +63,10 @@ interface GasData {
 
 export interface MonthlyReportProps {
   data: {
-    water: { invoices: WaterInvoice[] };
+    water: {
+      invoices: WaterInvoice[];
+      supplyNumber: number; // NIS from SEDAPAL session
+    };
     electricity: {
       invoices: ElectricityInvoice[];
       subMeters: SubMeterReading[];
@@ -336,21 +341,23 @@ export const MonthlyReportEmail = ({ data }: MonthlyReportProps) => {
     (acc, curr) => acc + curr.total_fact,
     0
   );
-  const totalElec = data.electricity.invoices.reduce(
-    (acc, curr) => acc + curr.invoice.totalPagar,
-    0
-  );
   const totalGas = data.gas.data.reduce(
     (acc, curr) => acc + curr.statement.totalDebt,
     0
   );
-  const grandTotal = totalWater + totalElec + totalGas;
 
   // Electricity breakdown
   const elecInvoice = data.electricity.invoices[0];
   const billEnergyCost = elecInvoice?.invoice?.consumoEnergia || 0;
   const billIgv = elecInvoice?.invoice?.igv || 0;
-  const billOthers = elecInvoice?.invoice?.otrosConceptos || 0;
+  // Otros = otrosConceptos + noAfectoIGV (both are fixed costs divided equally)
+  const billOthers =
+    (elecInvoice?.invoice?.otrosConceptos || 0) +
+    (elecInvoice?.invoice?.noAfectoIGV || 0);
+
+  // Total electricity = energy + igv + others (matches bill total)
+  const totalElec = billEnergyCost + billIgv + billOthers;
+  const grandTotal = totalWater + totalElec + totalGas;
 
   // Meter readings
   const floorReadings = data.electricity.subMeters.map((m) => ({
@@ -471,22 +478,28 @@ export const MonthlyReportEmail = ({ data }: MonthlyReportProps) => {
                 {/* Electricity Breakdown */}
                 <Section style={breakdownBox}>
                   <Row>
-                    <Column style={{ width: "33%" }}>
+                    <Column style={{ width: "25%" }}>
                       <Text style={breakdownLabel}>Energía</Text>
                       <Text style={breakdownValue}>
                         {currency(floor.elecEnergy)}
                       </Text>
                     </Column>
-                    <Column style={{ width: "33%" }}>
+                    <Column style={{ width: "25%" }}>
                       <Text style={breakdownLabel}>IGV (18%)</Text>
                       <Text style={breakdownValue}>
                         {currency(floor.elecIgv)}
                       </Text>
                     </Column>
-                    <Column style={{ width: "34%" }}>
+                    <Column style={{ width: "25%" }}>
                       <Text style={breakdownLabel}>Fijos</Text>
                       <Text style={breakdownValue}>
                         {currency(floor.elecOthers)}
+                      </Text>
+                    </Column>
+                    <Column style={{ width: "25%", textAlign: "right" }}>
+                      <Text style={breakdownLabel}>Total Luz</Text>
+                      <Text style={{ ...breakdownValue, fontWeight: "bold" }}>
+                        {currency(floor.elecTotal)}
                       </Text>
                     </Column>
                   </Row>
@@ -567,7 +580,7 @@ export const MonthlyReportEmail = ({ data }: MonthlyReportProps) => {
                 <Column>
                   <Text style={receiptName}>Agua Potable</Text>
                   <Text style={receiptDetail}>
-                    Recibo: {waterInvoice?.recibo}
+                    NIS: {data.water.supplyNumber}
                   </Text>
                 </Column>
                 <Column style={{ textAlign: "right" }}>
@@ -583,11 +596,15 @@ export const MonthlyReportEmail = ({ data }: MonthlyReportProps) => {
                 </Column>
                 <Column>
                   <Text style={receiptName}>Gas Natural</Text>
-                  <Text style={receiptDetail}>3 Puntos</Text>
+                  <Text style={receiptDetail}>
+                    {data.gas.data
+                      .map((g) => parseInt(g.account.clientCode, 10))
+                      .join(", ")}
+                  </Text>
                 </Column>
                 <Column style={{ textAlign: "right" }}>
                   <Text style={receiptAmount}>{currency(totalGas)}</Text>
-                  <Text style={receiptDetail}>Total 3 pisos</Text>
+                  <Text style={receiptDetail}>3 suministros</Text>
                 </Column>
               </Row>
             </Section>

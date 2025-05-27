@@ -29,15 +29,17 @@ async function fetchWaterData(): Promise<MonthlyReportProps["data"]["water"]> {
 
   if (!sedapal.isAuthenticated()) {
     console.log("   ⚠️ SEDAPAL login failed");
-    return { invoices: [] };
+    return { invoices: [], supplyNumber: 0 };
   }
 
+  const supplyNumber = sedapal.getSupplyNumber() || 0;
   const invoicesResponse = await sedapal.getInvoices();
   console.log("   ✅ SEDAPAL data fetched");
 
   return {
     invoices: (invoicesResponse.bRESP ||
       []) as MonthlyReportProps["data"]["water"]["invoices"],
+    supplyNumber,
   };
 }
 
