@@ -203,12 +203,13 @@ async function main() {
     // Send email
     console.log("\n📧 Sending email report...");
 
-    const to = process.env.EMAIL_TO!;
+    // Support multiple recipients (comma-separated)
+    const to = process.env.EMAIL_TO!.split(",").map((e) => e.trim());
     const from = process.env.EMAIL_FROM || "HomeOps <onboarding@resend.dev>";
 
     const { data, error } = await resend.emails.send({
       from,
-      to: [to],
+      to,
       subject: "HomeOps - Resumen de Facturación",
       html: emailHtml,
     });
