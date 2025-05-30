@@ -7,6 +7,7 @@
     "test:sedapal": "bun run src/scripts/test-sedapal.ts",
     "test:luzdelsur": "bun run src/scripts/test-luzdelsur.ts",
     "test:calidda": "bun run src/scripts/test-calidda.ts",
+    "test:whatsapp": "bun run src/scripts/test-whatsapp.ts",
     "send:email": "bun run src/scripts/send-email.ts"
   },
   "devDependencies": {
@@ -18,6 +19,8 @@
   },
   "dependencies": {
     "@react-email/components": "^1.0.2",
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "qrcode-terminal": "^0.12.0",
     "react": "^19.2.3",
     "resend": "^6.6.0"
   }
