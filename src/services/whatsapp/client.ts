@@ -56,6 +56,81 @@ export async function connectToWhatsApp(): Promise<WASocket> {
   return sock;
 }
 
+// Store the target group JID for filtering
+let targetGroupJid: string | null = null;
+
+// Message callback type
+type MessageCallback = (message: {
+  from: string;
+  sender: string;
+  text: string;
+  timestamp: Date;
+  isGroup: boolean;
+}) => void;
+
+let messageCallback: MessageCallback | null = null;
+
+/**
+ * Start listening for messages from a specific group
+ * @param groupJid - The group JID (e.g., "123456789@g.us")
+ * @param callback - Function to call when a message is received
+ */
+export function listenToGroup(
+  groupJid: string,
+  callback: MessageCallback
+): void {
+  if (!sock) {
+    throw new Error("WhatsApp not connected");
+  }
+
+  targetGroupJid = groupJid;
+  messageCallback = callback;
+
+  sock.ev.on("messages.upsert", (m) => {
+    for (const msg of m.messages) {
+      const remoteJid = msg.key.remoteJid;
+
+      // Skip if no remote JID
+      if (!remoteJid) continue;
+
+      // Skip if not from target group (if target is specified)
+      if (targetGroupJid && remoteJid !== targetGroupJid) continue;
+
+      // Note: Not skipping fromMe to allow seeing own messages for testing
+
+      // Extract message text
+      const text =
+        msg.message?.conversation ||
+        msg.message?.extendedTextMessage?.text ||
+        "";
+
+      if (!text) continue;
+
+      // Get sender info
+      const sender = msg.key.participant || msg.key.remoteJid || "unknown";
+      const isGroup = remoteJid.endsWith("@g.us");
+
+      console.log("\n📩 Message received:");
+      console.log(`   From: ${remoteJid}`);
+      console.log(`   Sender: ${sender}`);
+      console.log(`   Text: ${text}`);
+      console.log(`   IsGroup: ${isGroup}`);
+
+      if (messageCallback) {
+        messageCallback({
+          from: remoteJid,
+          sender,
+          text,
+          timestamp: new Date((msg.messageTimestamp as number) * 1000),
+          isGroup,
+        });
+      }
+    }
+  });
+
+  console.log(`\n👂 Listening to group: ${groupJid}`);
+}
+
 /**
  * Wait for WhatsApp connection to be ready
  */
@@ -115,6 +190,7 @@ export async function disconnect(): Promise<void> {
 export const whatsapp = {
   connect: connectToWhatsApp,
   waitForConnection,
+  listenToGroup,
   sendMessage,
   getOwnJid,
   disconnect,

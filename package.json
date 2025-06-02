@@ -8,6 +8,7 @@
     "test:luzdelsur": "bun run src/scripts/test-luzdelsur.ts",
     "test:calidda": "bun run src/scripts/test-calidda.ts",
     "test:whatsapp": "bun run src/scripts/test-whatsapp.ts",
+    "listen:whatsapp": "bun run src/scripts/listen-whatsapp.ts",
     "send:email": "bun run src/scripts/send-email.ts"
   },
   "devDependencies": {
