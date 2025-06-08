@@ -182,6 +182,50 @@ function formatReport(data: Awaited<ReturnType<typeof fetchAllData>>): string {
   return lines.join("\n");
 }
 
+// Configuration
+const SCHEDULE_DAY = parseInt(process.env.SCHEDULE_DAY || "26", 10);
+const SCHEDULE_HOUR = parseInt(process.env.SCHEDULE_HOUR || "9", 10);
+
+// Track if we already sent today (to avoid duplicate sends)
+let lastSentDate: string | null = null;
+
+// Send report function
+async function sendReport(reason: string) {
+  console.log(`\n🚀 ${reason}`);
+
+  try {
+    const data = await fetchAllData();
+    const report = formatReport(data);
+
+    console.log("\n📤 Sending report to group...");
+    await whatsapp.sendMessage(GROUP_JID, report);
+    console.log("✅ Report sent!");
+
+    // Mark as sent today
+    lastSentDate = new Date().toDateString();
+  } catch (error) {
+    console.error("❌ Error generating report:", error);
+    await whatsapp.sendMessage(
+      GROUP_JID,
+      "❌ Error al generar el reporte. Intenta de nuevo."
+    );
+  }
+}
+
+// Check if we should send scheduled report
+function checkScheduledReport() {
+  const now = new Date();
+  const today = now.toDateString();
+
+  // Don't send if already sent today
+  if (lastSentDate === today) return;
+
+  // Check if it's the right day and hour
+  if (now.getDate() === SCHEDULE_DAY && now.getHours() === SCHEDULE_HOUR) {
+    sendReport(`Scheduled report (day ${SCHEDULE_DAY} at ${SCHEDULE_HOUR}:00)`);
+  }
+}
+
 async function main() {
   console.log("🤖 WhatsApp Report Bot\n");
   console.log("=".repeat(50));
@@ -209,6 +253,7 @@ async function main() {
 
   console.log(`📌 Group: ${GROUP_JID}`);
   console.log(`🔑 Trigger: "${TRIGGER_KEYWORD}"`);
+  console.log(`📅 Schedule: Day ${SCHEDULE_DAY} at ${SCHEDULE_HOUR}:00`);
 
   // Connect to WhatsApp
   console.log("\n🔄 Connecting to WhatsApp...");
@@ -220,26 +265,16 @@ async function main() {
     const text = message.text.toLowerCase().trim();
 
     if (text === TRIGGER_KEYWORD.toLowerCase()) {
-      console.log("\n🚀 Trigger detected! Generating report...");
-
-      try {
-        const data = await fetchAllData();
-        const report = formatReport(data);
-
-        console.log("\n📤 Sending report to group...");
-        await whatsapp.sendMessage(GROUP_JID, report);
-        console.log("✅ Report sent!");
-      } catch (error) {
-        console.error("❌ Error generating report:", error);
-        await whatsapp.sendMessage(
-          GROUP_JID,
-          "❌ Error al generar el reporte. Intenta de nuevo."
-        );
-      }
+      await sendReport("Keyword trigger detected!");
     }
   });
 
-  console.log("\n⏳ Bot running... (Ctrl+C to exit)\n");
+  // Start scheduler (check every minute)
+  setInterval(checkScheduledReport, 60 * 1000);
+  console.log("\n⏳ Bot running... (Ctrl+C to exit)");
+  console.log(
+    `   Next scheduled: Day ${SCHEDULE_DAY} at ${SCHEDULE_HOUR}:00\n`
+  );
 
   // Keep alive
   await new Promise(() => {});
