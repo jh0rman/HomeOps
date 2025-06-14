@@ -15,11 +15,14 @@ import {
 // Configuration
 const GROUP_JID = process.env.GROUP_JID || "";
 const TRIGGER_KEYWORD = process.env.TRIGGER_KEYWORD || "!reporte";
+const TRIGGER_PAYMENTS = "!pagos";
+const SCHEDULE_DAY = parseInt(process.env.SCHEDULE_DAY || "26", 10);
+const SCHEDULE_HOUR = parseInt(process.env.SCHEDULE_HOUR || "9", 10);
 
 // Format currency
 const currency = (amount: number) => `S/ ${amount.toFixed(2)}`;
 
-// Fetch all utility data
+// Fetch all utility data with detailed invoice info
 async function fetchAllData() {
   console.log("\n📊 Fetching utility data...");
 
@@ -29,13 +32,28 @@ async function fetchAllData() {
     process.env.SEDAPAL_EMAIL!,
     process.env.SEDAPAL_PASSWORD!
   );
-  const waterInvoices = sedapal.isAuthenticated()
-    ? (await sedapal.getInvoices()).bRESP || []
-    : [];
-  const totalWater = waterInvoices.reduce(
-    (acc, inv) => acc + inv.total_fact,
-    0
-  );
+  
+  let waterRequests: { supply: number; amount: number; expiry: string }[] = [];
+  let waterTotal = 0;
+  let waterDebt = 0; // Debt for payments report
+  
+  // Always try to get supply number from session
+  const sedapalSupplyNum = sedapal.getSupplyNumber() || 0;
+
+  if (sedapal.isAuthenticated()) {
+    const waterInvoices = (await sedapal.getInvoices()).bRESP || [];
+    waterTotal = waterInvoices.reduce((acc, inv) => acc + inv.total_fact, 0);
+    
+    // Only pending invoices count as debt (assuming API returns unpaid)
+    waterDebt = waterTotal;
+
+    // Map to a cleaner structure
+    waterRequests = waterInvoices.map(inv => ({
+      supply: sedapalSupplyNum, 
+      amount: inv.total_fact, 
+      expiry: inv.vencimiento || ""
+    }));
+  }
 
   // Electricity
   console.log("   💡 Luz del Sur...");
@@ -43,22 +61,45 @@ async function fetchAllData() {
     process.env.LUZDELSUR_EMAIL!,
     process.env.LUZDELSUR_PASSWORD!
   );
+  
+  let elecDebt = 0;
+  let elecRequests: { supply: number; amount: number; expiry: string; status: string }[] = [];
   let elecData = {
     consumoEnergia: 0,
     igv: 0,
     otrosConceptos: 0,
     noAfectoIGV: 0,
     ultimaFacturacion: "",
+    totalPagar: 0,
+    fechaVencimiento: "",
+    saldoPendiente: 0,
+    ultimoPago: 0
   };
+
   if (luzdelsur.isAuthenticated()) {
     const supplies = (await luzdelsur.getSupplies()).datos?.suministros || [];
     if (supplies.length > 0) {
-      const invoice = await luzdelsur.getLatestInvoice(
-        String(supplies[0]!.suministro)
-      );
-      elecData = invoice.datos as typeof elecData;
+      const supplyNum = supplies[0]!.suministro;
+      const invoice = await luzdelsur.getLatestInvoice(String(supplyNum));
+      elecData = invoice.datos as any; 
+      
+      const actualDebt = elecData.saldoPendiente;
+      const status = actualDebt > 0.5 ? "PENDIENTE" : "PAGADO";
+      
+      if (status === "PENDIENTE") {
+          elecDebt = actualDebt;
+      }
+      
+      elecRequests.push({
+        supply: supplyNum,
+        amount: Math.max(0, actualDebt), // Show 0 if negative
+        expiry: elecData.fechaVencimiento || "N/A",
+        status
+      });
     }
   }
+  
+  // For the regular report electricity total components
   const totalElec =
     elecData.consumoEnergia +
     elecData.igv +
@@ -71,8 +112,12 @@ async function fetchAllData() {
     process.env.CALIDDA_EMAIL!,
     process.env.CALIDDA_PASSWORD!
   );
+  
+  let gasRequests: { code: string; amount: number; expiry: string; status: string }[] = [];
   const gasData: { floor: string; amount: number }[] = [];
   let totalGas = 0;
+  let gasDebt = 0;
+  
   if (calidda.isAuthenticated()) {
     const accounts = (await calidda.getAccounts()).data || [];
     for (const acc of accounts) {
@@ -82,8 +127,24 @@ async function fetchAllData() {
       ]);
       const floor = basic.data?.supplyAddress?.houseFloorNumber || "?";
       const amount = statement.data?.totalDebt || 0;
+      const expiry = statement.data?.lastBillDueDate || "";
+      
       gasData.push({ floor, amount });
       totalGas += amount;
+      
+      // Clean client code (remove leading zeros)
+      const cleanCode = String(parseInt(acc.clientCode, 10));
+
+      if (amount > 0) {
+          gasDebt += amount;
+      }
+      
+      gasRequests.push({
+        code: cleanCode,
+        amount,
+        expiry: (expiry.split("T")[0] || ""),
+        status: amount > 0 ? "PENDIENTE" : "PAGADO"
+      });
     }
   }
 
@@ -106,7 +167,7 @@ async function fetchAllData() {
       const elecIgv = elecData.igv * share;
       const elecOthers = billOthers / 3;
       const elecTotal = elecEnergy + elecIgv + elecOthers;
-      const waterShare = totalWater / 3;
+      const waterShare = waterTotal / 3;
       const gasFloor = gasData.find((g) => g.floor === r.floor.toString());
       const gasAmount = gasFloor?.amount || 0;
 
@@ -118,22 +179,25 @@ async function fetchAllData() {
     });
   }
 
-  const grandTotal = totalWater + totalElec + totalGas;
+  const grandTotal = waterTotal + totalElec + totalGas; // Invoice totals
+  const totalDebt = waterDebt + elecDebt + gasDebt;   // Actual debt to pay
 
   return {
-    water: { total: totalWater },
+    water: { total: waterTotal, invoices: waterRequests, supplyNum: sedapalSupplyNum }, // Pass supplyNum
     electricity: {
       total: totalElec,
       period: elecData.ultimaFacturacion,
+      invoices: elecRequests,
       breakdown: {
         energia: elecData.consumoEnergia,
         igv: elecData.igv,
         otros: elecData.otrosConceptos + (elecData.noAfectoIGV || 0),
       },
     },
-    gas: { total: totalGas, floors: gasData },
+    gas: { total: totalGas, floors: gasData, invoices: gasRequests },
     floors: floorBreakdown,
     grandTotal,
+    totalDebt
   };
 }
 
@@ -182,9 +246,64 @@ function formatReport(data: Awaited<ReturnType<typeof fetchAllData>>): string {
   return lines.join("\n");
 }
 
-// Configuration
-const SCHEDULE_DAY = parseInt(process.env.SCHEDULE_DAY || "26", 10);
-const SCHEDULE_HOUR = parseInt(process.env.SCHEDULE_HOUR || "9", 10);
+// Format payments summary for WhatsApp
+function formatPayments(data: Awaited<ReturnType<typeof fetchAllData>>): string {
+  const lines: string[] = [];
+
+  lines.push("💸 *RESUMEN DE PAGOS*");
+  lines.push("━━━━━━━━━━━━━━━━━━━━");
+  lines.push("");
+
+  // Electricity
+  if (data.electricity.invoices.length > 0) {
+    lines.push("⚡ *Luz del Sur:*");
+    for (const inv of data.electricity.invoices) {
+      lines.push(`   Sum: ${inv.supply}`);
+      if (inv.status === "PAGADO") {
+          lines.push(`   Estado: *✅ PAGADO*`);
+      } else {
+          lines.push(`   Monto: *${currency(inv.amount)}*`);
+          lines.push(`   Vence: ${inv.expiry}`);
+      }
+      lines.push("");
+    }
+  }
+
+  // Water
+  lines.push("💧 *SEDAPAL:*");
+  if (data.water.invoices.length > 0) {
+    for (const inv of data.water.invoices) {
+      lines.push(`   NIS: ${inv.supply}`);
+      lines.push(`   Monto: *${currency(inv.amount)}*`);
+      lines.push(`   Vence: ${inv.expiry}`);
+      lines.push("");
+    }
+  } else {
+      lines.push(`   NIS: ${data.water.supplyNum}`);
+      lines.push(`   Estado: *✅ PAGADO*`);
+      lines.push(""); 
+  }
+
+  // Gas
+  if (data.gas.invoices.length > 0) {
+    lines.push("🔥 *Cálidda:*");
+    for (const inv of data.gas.invoices) {
+      lines.push(`   Cliente: ${inv.code}`);
+      if (inv.status === "PAGADO") {
+          lines.push(`   Estado: *✅ PAGADO*`);
+      } else {
+          lines.push(`   Monto: *${currency(inv.amount)}*`);
+          lines.push(`   Vence: ${inv.expiry}`);
+      }
+      lines.push("");
+    }
+  }
+
+  lines.push("━━━━━━━━━━━━━━━━━━━━");
+  lines.push(`_Total deuda: ${currency(data.totalDebt)}_`);
+
+  return lines.join("\n");
+}
 
 // Track if we already sent today (to avoid duplicate sends)
 let lastSentDate: string | null = null;
@@ -208,6 +327,26 @@ async function sendReport(reason: string) {
     await whatsapp.sendMessage(
       GROUP_JID,
       "❌ Error al generar el reporte. Intenta de nuevo."
+    );
+  }
+}
+
+// Send payments logic
+async function sendPayments(reason: string) {
+  console.log(`\n🚀 ${reason}`);
+
+  try {
+    const data = await fetchAllData();
+    const report = formatPayments(data);
+
+    console.log("\n📤 Sending payments summary to group...");
+    await whatsapp.sendMessage(GROUP_JID, report);
+    console.log("✅ Summary sent!");
+  } catch (error) {
+    console.error("❌ Error generating summary:", error);
+    await whatsapp.sendMessage(
+      GROUP_JID,
+      "❌ Error al generar el resumen. Intenta de nuevo."
     );
   }
 }
@@ -252,7 +391,8 @@ async function main() {
   }
 
   console.log(`📌 Group: ${GROUP_JID}`);
-  console.log(`🔑 Trigger: "${TRIGGER_KEYWORD}"`);
+  console.log(`🔑 Trigger 1: "${TRIGGER_KEYWORD}"`);
+  console.log(`🔑 Trigger 2: "${TRIGGER_PAYMENTS}"`);
   console.log(`📅 Schedule: Day ${SCHEDULE_DAY} at ${SCHEDULE_HOUR}:00`);
 
   // Connect to WhatsApp
@@ -266,6 +406,8 @@ async function main() {
 
     if (text === TRIGGER_KEYWORD.toLowerCase()) {
       await sendReport("Keyword trigger detected!");
+    } else if (text === TRIGGER_PAYMENTS.toLowerCase()) {
+      await sendPayments("Payments trigger detected!");
     }
   });
 
