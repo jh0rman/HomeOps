@@ -7,21 +7,17 @@ import {
 } from "../../utils/meter-readings";
 import type { AggregatedData } from "../../types/homeops";
 
-export async function fetchAllData(): Promise<AggregatedData> {
-  console.log("\n📊 Fetching utility data...");
-
-  // Water
-  console.log("   🚰 SEDAPAL...");
+// Helper functions to fetch data from each service
+async function fetchWaterData() {
   await sedapal.login(
     process.env.SEDAPAL_EMAIL!,
     process.env.SEDAPAL_PASSWORD!
   );
 
+  const sedapalSupplyNum = sedapal.getSupplyNumber() || 0;
   let waterRequests: any[] = [];
   let waterTotal = 0;
   let waterDebt = 0;
-  
-  const sedapalSupplyNum = sedapal.getSupplyNumber() || 0;
 
   if (sedapal.isAuthenticated()) {
     const waterInvoices = (await sedapal.getInvoices()).bRESP || [];
@@ -35,8 +31,10 @@ export async function fetchAllData(): Promise<AggregatedData> {
     }));
   }
 
-  // Electricity
-  console.log("   💡 Luz del Sur...");
+  return { waterRequests, waterTotal, waterDebt, sedapalSupplyNum };
+}
+
+async function fetchElectricityData() {
   await luzdelsur.login(
     process.env.LUZDELSUR_EMAIL!,
     process.env.LUZDELSUR_PASSWORD!
@@ -85,30 +83,40 @@ export async function fetchAllData(): Promise<AggregatedData> {
     elecData.otrosConceptos +
     (elecData.noAfectoIGV || 0);
 
-  // Gas
-  console.log("   🔥 Cálidda...");
+  return { elecRequests, elecData, elecDebt, totalElec };
+}
+
+async function fetchGasData() {
   await calidda.login(
     process.env.CALIDDA_EMAIL!,
     process.env.CALIDDA_PASSWORD!
   );
 
   let gasRequests: any[] = [];
-  const gasData: { floor: string; amount: number }[] = [];
+  const gasFloors: { floor: string; amount: number }[] = [];
   let totalGas = 0;
   let gasDebt = 0;
 
   if (calidda.isAuthenticated()) {
     const accounts = (await calidda.getAccounts()).data || [];
-    for (const acc of accounts) {
-      const [basic, statement] = await Promise.all([
-        calidda.getBasicData(acc.clientCode),
-        calidda.getAccountStatement(acc.clientCode),
-      ]);
+    
+    // Fetch all account details in parallel
+    const accountDetails = await Promise.all(
+      accounts.map(async (acc) => {
+        const [basic, statement] = await Promise.all([
+          calidda.getBasicData(acc.clientCode),
+          calidda.getAccountStatement(acc.clientCode),
+        ]);
+        return { acc, basic, statement };
+      })
+    );
+
+    for (const { acc, basic, statement } of accountDetails) {
       const floor = basic.data?.supplyAddress?.houseFloorNumber || "?";
       const amount = statement.data?.totalDebt || 0;
       const expiry = statement.data?.lastBillDueDate || "";
 
-      gasData.push({ floor, amount });
+      gasFloors.push({ floor, amount });
       totalGas += amount;
 
       const cleanCode = String(parseInt(acc.clientCode, 10));
@@ -126,7 +134,24 @@ export async function fetchAllData(): Promise<AggregatedData> {
     }
   }
 
-  // Meter readings
+  return { gasRequests, gasFloors, totalGas, gasDebt };
+}
+
+export async function fetchAllData(): Promise<AggregatedData> {
+  console.log("\n📊 Fetching utility data (parallel)...");
+
+  // Fetch all services in parallel
+  const [waterResult, elecResult, gasResult] = await Promise.all([
+    fetchWaterData().then((r) => { console.log("   🚰 SEDAPAL ✓"); return r; }),
+    fetchElectricityData().then((r) => { console.log("   💡 Luz del Sur ✓"); return r; }),
+    fetchGasData().then((r) => { console.log("   🔥 Cálidda ✓"); return r; }),
+  ]);
+
+  const { waterRequests, waterTotal, waterDebt, sedapalSupplyNum } = waterResult;
+  const { elecRequests, elecData, elecDebt, totalElec } = elecResult;
+  const { gasRequests, gasFloors, totalGas, gasDebt } = gasResult;
+
+  // Meter readings (synchronous, uses env vars)
   const meterConfig = parseMeterReadingsFromEnv();
   let floorBreakdown: { floor: number; kwh: number; total: number }[] = [];
 
@@ -146,7 +171,7 @@ export async function fetchAllData(): Promise<AggregatedData> {
       const elecOthers = billOthers / 3;
       const elecTotal = elecEnergy + elecIgv + elecOthers;
       const waterShare = waterTotal / 3;
-      const gasFloor = gasData.find((g) => g.floor === r.floor.toString());
+      const gasFloor = gasFloors.find((g) => g.floor === r.floor.toString());
       const gasAmount = gasFloor?.amount || 0;
 
       return {
@@ -176,7 +201,7 @@ export async function fetchAllData(): Promise<AggregatedData> {
         otros: elecData.otrosConceptos + (elecData.noAfectoIGV || 0),
       },
     },
-    gas: { total: totalGas, floors: gasData, invoices: gasRequests },
+    gas: { total: totalGas, floors: gasFloors, invoices: gasRequests },
     floors: floorBreakdown,
     grandTotal,
     totalDebt,
