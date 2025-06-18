@@ -1,10 +1,7 @@
 import { sedapal } from "../sedapal";
 import { luzdelsur } from "../luzdelsur";
 import { calidda } from "../calidda";
-import {
-  parseMeterReadingsFromEnv,
-  configToMeterReadings,
-} from "../../utils/meter-readings";
+import { meterReadings } from "../meter-readings";
 import type { AggregatedData } from "../../types/homeops";
 
 // Helper functions to fetch data from each service
@@ -151,12 +148,11 @@ export async function fetchAllData(): Promise<AggregatedData> {
   const { elecRequests, elecData, elecDebt, totalElec } = elecResult;
   const { gasRequests, gasFloors, totalGas, gasDebt } = gasResult;
 
-  // Meter readings (synchronous, uses env vars)
-  const meterConfig = parseMeterReadingsFromEnv();
+  // Meter readings from SQLite database
+  const readings = meterReadings.getLatestReadings();
   let floorBreakdown: { floor: number; kwh: number; total: number }[] = [];
 
-  if (meterConfig) {
-    const readings = configToMeterReadings(meterConfig);
+  if (readings.length > 0) {
     const totalKwh = readings.reduce(
       (acc, r) => acc + (r.endReading - r.startReading),
       0
