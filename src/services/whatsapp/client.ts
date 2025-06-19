@@ -1,18 +1,26 @@
 /**
  * WhatsApp Service using Baileys
- * Handles connection and message sending
+ * Handles connection, messaging, and media download
  */
 
 import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
+  downloadMediaMessage,
   type WASocket,
+  type WAMessage,
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
 // @ts-ignore - no types available
 import qrcode from "qrcode-terminal";
+import { join } from "path";
+import { mkdirSync, writeFileSync } from "fs";
 
 const AUTH_FOLDER = ".whatsapp-auth";
+const MEDIA_FOLDER = "data/whatsapp-media";
+
+// Ensure media folder exists
+mkdirSync(MEDIA_FOLDER, { recursive: true });
 
 let sock: WASocket | null = null;
 
@@ -66,9 +74,46 @@ type MessageCallback = (message: {
   text: string;
   timestamp: Date;
   isGroup: boolean;
+  hasImage?: boolean;
+  imagePath?: string;
 }) => void;
 
 let messageCallback: MessageCallback | null = null;
+
+/**
+ * Download image from a message
+ */
+async function downloadImage(msg: WAMessage): Promise<string | null> {
+  try {
+    const imageMessage = msg.message?.imageMessage;
+    if (!imageMessage) return null;
+
+    const buffer = await downloadMediaMessage(
+      msg,
+      "buffer",
+      {},
+      {
+        logger: undefined as any,
+        reuploadRequest: sock!.updateMediaMessage,
+      }
+    );
+
+    // Generate filename with timestamp
+    const timestamp = Date.now();
+    const mimetype = imageMessage.mimetype || "image/jpeg";
+    const ext = mimetype.split("/")[1] || "jpg";
+    const filename = `img_${timestamp}.${ext}`;
+    const filepath = join(MEDIA_FOLDER, filename);
+
+    writeFileSync(filepath, buffer as Buffer);
+    console.log(`   📷 Image saved: ${filepath}`);
+
+    return filepath;
+  } catch (error) {
+    console.error("   ⚠️ Failed to download image:", error);
+    return null;
+  }
+}
 
 /**
  * Start listening for messages from a specific group
@@ -86,7 +131,7 @@ export function listenToGroup(
   targetGroupJid = groupJid;
   messageCallback = callback;
 
-  sock.ev.on("messages.upsert", (m) => {
+  sock.ev.on("messages.upsert", async (m) => {
     for (const msg of m.messages) {
       const remoteJid = msg.key.remoteJid;
 
@@ -98,13 +143,24 @@ export function listenToGroup(
 
       // Note: Not skipping fromMe to allow seeing own messages for testing
 
-      // Extract message text
+      // Check for image
+      const hasImage = !!msg.message?.imageMessage;
+      let imagePath: string | undefined;
+
+      if (hasImage) {
+        const path = await downloadImage(msg);
+        if (path) imagePath = path;
+      }
+
+      // Extract message text (including image caption)
       const text =
         msg.message?.conversation ||
         msg.message?.extendedTextMessage?.text ||
+        msg.message?.imageMessage?.caption ||
         "";
 
-      if (!text) continue;
+      // Skip if no text AND no image
+      if (!text && !hasImage) continue;
 
       // Get sender info
       const sender = msg.key.participant || msg.key.remoteJid || "unknown";
@@ -113,8 +169,9 @@ export function listenToGroup(
       console.log("\n📩 Message received:");
       console.log(`   From: ${remoteJid}`);
       console.log(`   Sender: ${sender}`);
-      console.log(`   Text: ${text}`);
+      console.log(`   Text: ${text || "(image only)"}`);
       console.log(`   IsGroup: ${isGroup}`);
+      if (hasImage) console.log(`   HasImage: true`);
 
       if (messageCallback) {
         messageCallback({
@@ -123,6 +180,8 @@ export function listenToGroup(
           text,
           timestamp: new Date((msg.messageTimestamp as number) * 1000),
           isGroup,
+          hasImage,
+          imagePath,
         });
       }
     }
