@@ -6,11 +6,13 @@
 import { whatsapp } from "../services/whatsapp";
 import { fetchAllData } from "../services/homeops/aggregator";
 import { formatReport, formatPayments } from "../services/homeops/formatter";
+import { gemini } from "../services/gemini";
 
 // Configuration
 const GROUP_JID = process.env.GROUP_JID || "";
 const TRIGGER_KEYWORD = process.env.TRIGGER_KEYWORD || "!reporte";
 const TRIGGER_PAYMENTS = "!pagos";
+const TRIGGER_MEDIDOR = "!medidor";
 const SCHEDULE_DAY = parseInt(process.env.SCHEDULE_DAY || "26", 10);
 const SCHEDULE_HOUR = parseInt(process.env.SCHEDULE_HOUR || "9", 10);
 
@@ -60,6 +62,32 @@ async function sendPayments(reason: string) {
   }
 }
 
+// Process meter reading image with Gemini OCR
+async function processMeterImage(imageBuffer: Buffer, mimeType: string) {
+  console.log("\n🔍 Processing meter image with Gemini...");
+
+  try {
+    const result = await gemini.extractMeterReading(imageBuffer, mimeType);
+
+    if (result.success && result.text) {
+      console.log(`   📊 OCR Result: ${result.text}`);
+      await whatsapp.sendMessage(
+        GROUP_JID,
+        `📊 *Lectura detectada:* \`${result.text}\``
+      );
+    } else {
+      console.log(`   ⚠️ OCR failed: ${result.error}`);
+      await whatsapp.sendMessage(
+        GROUP_JID,
+        `⚠️ No se pudo leer el medidor: ${result.error || "Error desconocido"}`
+      );
+    }
+  } catch (error) {
+    console.error("❌ Error in Gemini OCR:", error);
+    await whatsapp.sendMessage(GROUP_JID, "❌ Error al procesar la imagen.");
+  }
+}
+
 // Check if we should send scheduled report
 function checkScheduledReport() {
   const now = new Date();
@@ -81,8 +109,8 @@ async function main() {
 
   // Validate environment (simplified check, detailed check could be in aggregator or config utils)
   if (!process.env.SEDAPAL_EMAIL) {
-      console.error("❌ Missing env vars (check .env)");
-      process.exit(1);
+    console.error("❌ Missing env vars (check .env)");
+    process.exit(1);
   }
 
   if (!GROUP_JID) {
@@ -91,8 +119,9 @@ async function main() {
   }
 
   console.log(`📌 Group: ${GROUP_JID}`);
-  console.log(`🔑 Trigger 1: "${TRIGGER_KEYWORD}"`);
-  console.log(`🔑 Trigger 2: "${TRIGGER_PAYMENTS}"`);
+  console.log(
+    `🔑 Triggers: "${TRIGGER_KEYWORD}", "${TRIGGER_PAYMENTS}", "${TRIGGER_MEDIDOR}"`
+  );
   console.log(`📅 Schedule: Day ${SCHEDULE_DAY} at ${SCHEDULE_HOUR}:00`);
 
   // Connect to WhatsApp
@@ -100,14 +129,27 @@ async function main() {
   const sock = await whatsapp.connect();
   await whatsapp.waitForConnection(sock);
 
-  // Listen for trigger keyword
+  // Listen for messages
   whatsapp.listenToGroup(GROUP_JID, async (message) => {
     const text = message.text.toLowerCase().trim();
 
+    // Handle text commands
     if (text === TRIGGER_KEYWORD.toLowerCase()) {
       await sendReport("Keyword trigger detected!");
     } else if (text === TRIGGER_PAYMENTS.toLowerCase()) {
       await sendPayments("Payments trigger detected!");
+    }
+
+    // Handle image with !medidor caption
+    if (
+      message.hasImage &&
+      message.imageBuffer &&
+      text.startsWith(TRIGGER_MEDIDOR)
+    ) {
+      await processMeterImage(
+        message.imageBuffer,
+        message.imageMimeType || "image/jpeg"
+      );
     }
   });
 

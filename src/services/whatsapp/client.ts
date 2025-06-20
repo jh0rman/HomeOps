@@ -13,14 +13,8 @@ import makeWASocket, {
 import { Boom } from "@hapi/boom";
 // @ts-ignore - no types available
 import qrcode from "qrcode-terminal";
-import { join } from "path";
-import { mkdirSync, writeFileSync } from "fs";
 
 const AUTH_FOLDER = ".whatsapp-auth";
-const MEDIA_FOLDER = "data/whatsapp-media";
-
-// Ensure media folder exists
-mkdirSync(MEDIA_FOLDER, { recursive: true });
 
 let sock: WASocket | null = null;
 
@@ -75,15 +69,18 @@ type MessageCallback = (message: {
   timestamp: Date;
   isGroup: boolean;
   hasImage?: boolean;
-  imagePath?: string;
+  imageBuffer?: Buffer;
+  imageMimeType?: string;
 }) => void;
 
 let messageCallback: MessageCallback | null = null;
 
 /**
- * Download image from a message
+ * Download image buffer from a message
  */
-async function downloadImage(msg: WAMessage): Promise<string | null> {
+async function downloadImageBuffer(
+  msg: WAMessage
+): Promise<{ buffer: Buffer; mimeType: string } | null> {
   try {
     const imageMessage = msg.message?.imageMessage;
     if (!imageMessage) return null;
@@ -98,17 +95,10 @@ async function downloadImage(msg: WAMessage): Promise<string | null> {
       }
     );
 
-    // Generate filename with timestamp
-    const timestamp = Date.now();
-    const mimetype = imageMessage.mimetype || "image/jpeg";
-    const ext = mimetype.split("/")[1] || "jpg";
-    const filename = `img_${timestamp}.${ext}`;
-    const filepath = join(MEDIA_FOLDER, filename);
+    const mimeType = imageMessage.mimetype || "image/jpeg";
+    console.log(`   📷 Image downloaded (${mimeType})`);
 
-    writeFileSync(filepath, buffer as Buffer);
-    console.log(`   📷 Image saved: ${filepath}`);
-
-    return filepath;
+    return { buffer: buffer as Buffer, mimeType };
   } catch (error) {
     console.error("   ⚠️ Failed to download image:", error);
     return null;
@@ -145,11 +135,15 @@ export function listenToGroup(
 
       // Check for image
       const hasImage = !!msg.message?.imageMessage;
-      let imagePath: string | undefined;
+      let imageBuffer: Buffer | undefined;
+      let imageMimeType: string | undefined;
 
       if (hasImage) {
-        const path = await downloadImage(msg);
-        if (path) imagePath = path;
+        const result = await downloadImageBuffer(msg);
+        if (result) {
+          imageBuffer = result.buffer;
+          imageMimeType = result.mimeType;
+        }
       }
 
       // Extract message text (including image caption)
@@ -181,7 +175,8 @@ export function listenToGroup(
           timestamp: new Date((msg.messageTimestamp as number) * 1000),
           isGroup,
           hasImage,
-          imagePath,
+          imageBuffer,
+          imageMimeType,
         });
       }
     }
