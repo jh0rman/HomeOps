@@ -6,6 +6,7 @@
 import { whatsapp } from "../services/whatsapp";
 import { fetchAllData } from "../services/homeops/aggregator";
 import { formatReport, formatPayments } from "../services/homeops/formatter";
+import { floorAssignments } from "../services/floor-assignments";
 import { gemini } from "../services/gemini";
 
 // Configuration
@@ -13,6 +14,7 @@ const GROUP_JID = process.env.GROUP_JID || "";
 const TRIGGER_KEYWORD = process.env.TRIGGER_KEYWORD || "!reporte";
 const TRIGGER_PAYMENTS = "!pagos";
 const TRIGGER_MEDIDOR = "!medidor";
+const TRIGGER_PISO = "!piso";
 const SCHEDULE_DAY = parseInt(process.env.SCHEDULE_DAY || "26", 10);
 const SCHEDULE_HOUR = parseInt(process.env.SCHEDULE_HOUR || "9", 10);
 
@@ -63,7 +65,11 @@ async function sendPayments(reason: string) {
 }
 
 // Process meter reading image with Gemini OCR
-async function processMeterImage(imageBuffer: Buffer, mimeType: string) {
+async function processMeterImage(
+  imageBuffer: Buffer,
+  mimeType: string,
+  floor?: number
+) {
   console.log("\n🔍 Processing meter image with Gemini...");
 
   try {
@@ -71,9 +77,10 @@ async function processMeterImage(imageBuffer: Buffer, mimeType: string) {
 
     if (result.success && result.text) {
       console.log(`   📊 OCR Result: ${result.text}`);
+      const floorInfo = floor ? ` (Piso ${floor})` : "";
       await whatsapp.sendMessage(
         GROUP_JID,
-        `📊 *Lectura detectada:* \`${result.text}\``
+        `📊 *Lectura detectada${floorInfo}:* \`${result.text}\``
       );
     } else {
       console.log(`   ⚠️ OCR failed: ${result.error}`);
@@ -86,6 +93,23 @@ async function processMeterImage(imageBuffer: Buffer, mimeType: string) {
     console.error("❌ Error in Gemini OCR:", error);
     await whatsapp.sendMessage(GROUP_JID, "❌ Error al procesar la imagen.");
   }
+}
+
+// Handle floor assignment command
+async function handlePisoCommand(sender: string, args: string) {
+  const floorNum = parseInt(args, 10);
+
+  if (isNaN(floorNum) || floorNum < 1 || floorNum > 3) {
+    await whatsapp.sendMessage(
+      GROUP_JID,
+      "⚠️ Uso: `!piso <1|2|3>`\nEjemplo: `!piso 1`"
+    );
+    return;
+  }
+
+  floorAssignments.assignFloor(floorNum, sender);
+  console.log(`   📍 Assigned ${sender} to floor ${floorNum}`);
+  await whatsapp.sendMessage(GROUP_JID, `✅ Te asigné al *Piso ${floorNum}*`);
 }
 
 // Check if we should send scheduled report
@@ -120,7 +144,7 @@ async function main() {
 
   console.log(`📌 Group: ${GROUP_JID}`);
   console.log(
-    `🔑 Triggers: "${TRIGGER_KEYWORD}", "${TRIGGER_PAYMENTS}", "${TRIGGER_MEDIDOR}"`
+    `🔑 Triggers: "${TRIGGER_KEYWORD}", "${TRIGGER_PAYMENTS}", "${TRIGGER_MEDIDOR}", "${TRIGGER_PISO}"`
   );
   console.log(`📅 Schedule: Day ${SCHEDULE_DAY} at ${SCHEDULE_HOUR}:00`);
 
@@ -138,6 +162,9 @@ async function main() {
       await sendReport("Keyword trigger detected!");
     } else if (text === TRIGGER_PAYMENTS.toLowerCase()) {
       await sendPayments("Payments trigger detected!");
+    } else if (text.startsWith(TRIGGER_PISO)) {
+      const args = text.replace(TRIGGER_PISO, "").trim();
+      await handlePisoCommand(message.sender, args);
     }
 
     // Handle image with !medidor caption
@@ -146,9 +173,12 @@ async function main() {
       message.imageBuffer &&
       text.startsWith(TRIGGER_MEDIDOR)
     ) {
+      // Auto-detect floor from sender
+      const floor = floorAssignments.getFloorByPhone(message.sender);
       await processMeterImage(
         message.imageBuffer,
-        message.imageMimeType || "image/jpeg"
+        message.imageMimeType || "image/jpeg",
+        floor || undefined
       );
     }
   });

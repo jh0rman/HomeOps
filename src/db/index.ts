@@ -29,4 +29,13 @@ db.run(`
   )
 `);
 
+db.run(`
+  CREATE TABLE IF NOT EXISTS floor_assignments (
+    floor INTEGER PRIMARY KEY,
+    phone TEXT NOT NULL UNIQUE,
+    name TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
 console.log("📦 Database initialized:", DB_PATH);
