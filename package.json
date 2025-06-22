@@ -11,7 +11,8 @@
     "listen:whatsapp": "bun run src/scripts/listen-whatsapp.ts",
     "bot:whatsapp": "bun run src/scripts/whatsapp-bot.ts",
     "send:email": "bun run src/scripts/send-email.ts",
-    "meter": "bun run src/scripts/meter-readings.ts"
+    "meter": "bun run src/scripts/meter-readings.ts",
+    "floors": "bun run src/scripts/floor-assignments.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
