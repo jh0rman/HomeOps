@@ -76,6 +76,20 @@ export function getAllReadings(): MeterReading[] {
   return stmt.all() as MeterReading[];
 }
 
+// Get the latest reading for a specific floor (most recent month)
+export function getLatestFloorReading(floor: number): MeterReading | null {
+  const stmt = db.prepare(`
+    SELECT id, month, floor, start_reading as startReading, end_reading as endReading, created_at as createdAt
+    FROM meter_readings
+    WHERE floor = ?
+    ORDER BY 
+      CAST(SUBSTR(month, 4, 4) AS INTEGER) DESC,
+      CAST(SUBSTR(month, 1, 2) AS INTEGER) DESC
+    LIMIT 1
+  `);
+  return (stmt.get(floor) as MeterReading) || null;
+}
+
 // Delete readings for a month
 export function deleteMonth(month: string): number {
   const stmt = db.prepare(`DELETE FROM meter_readings WHERE month = ?`);
@@ -83,11 +97,21 @@ export function deleteMonth(month: string): number {
   return result.changes;
 }
 
+// Get current month in MM/YYYY format
+export function getCurrentMonth(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const year = now.getFullYear();
+  return `${month}/${year}`;
+}
+
 export const meterReadings = {
   getReadings,
   getLatestMonth,
   getLatestReadings,
+  getLatestFloorReading,
   upsertReading,
   getAllReadings,
   deleteMonth,
+  getCurrentMonth,
 };

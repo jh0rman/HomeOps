@@ -8,12 +8,12 @@ import { fetchAllData } from "../services/homeops/aggregator";
 import { formatReport, formatPayments } from "../services/homeops/formatter";
 import { floorAssignments } from "../services/floor-assignments";
 import { gemini } from "../services/gemini";
+import { meterReadings } from "../services/meter-readings";
 
 // Configuration
 const GROUP_JID = process.env.GROUP_JID || "";
 const TRIGGER_KEYWORD = process.env.TRIGGER_KEYWORD || "!reporte";
 const TRIGGER_PAYMENTS = "!pagos";
-const TRIGGER_MEDIDOR = "!medidor";
 const TRIGGER_PISO = "!piso";
 const SCHEDULE_DAY = parseInt(process.env.SCHEDULE_DAY || "26", 10);
 const SCHEDULE_HOUR = parseInt(process.env.SCHEDULE_HOUR || "9", 10);
@@ -64,31 +64,80 @@ async function sendPayments(reason: string) {
   }
 }
 
-// Process meter reading image with Gemini OCR
+// Process meter reading image with Gemini OCR and save to DB
 async function processMeterImage(
   imageBuffer: Buffer,
   mimeType: string,
-  floor?: number
+  floor: number
 ) {
-  console.log("\n🔍 Processing meter image with Gemini...");
+  console.log(`\n🔍 Processing meter image for floor ${floor}...`);
 
   try {
     const result = await gemini.extractMeterReading(imageBuffer, mimeType);
 
-    if (result.success && result.text) {
-      console.log(`   📊 OCR Result: ${result.text}`);
-      const floorInfo = floor ? ` (Piso ${floor})` : "";
-      await whatsapp.sendMessage(
-        GROUP_JID,
-        `📊 *Lectura detectada${floorInfo}:* \`${result.text}\``
-      );
-    } else {
+    if (!result.success || !result.text) {
       console.log(`   ⚠️ OCR failed: ${result.error}`);
       await whatsapp.sendMessage(
         GROUP_JID,
         `⚠️ No se pudo leer el medidor: ${result.error || "Error desconocido"}`
       );
+      return;
     }
+
+    // Parse the reading value
+    const endReading = parseFloat(result.text.replace(/[^\d.]/g, ""));
+    if (isNaN(endReading)) {
+      console.log(`   ⚠️ Could not parse reading: ${result.text}`);
+      await whatsapp.sendMessage(
+        GROUP_JID,
+        `⚠️ No se pudo interpretar la lectura: \`${result.text}\``
+      );
+      return;
+    }
+
+    console.log(`   📊 OCR Result: ${endReading}`);
+
+    // Get current month and previous reading
+    const currentMonth = meterReadings.getCurrentMonth();
+    const previousReading = meterReadings.getLatestFloorReading(floor);
+
+    // Use previous end_reading as start_reading (or same value if first reading)
+    const startReading = previousReading?.endReading ?? endReading;
+
+    // Calculate kWh used this month
+    const kwhUsed = Math.max(0, endReading - startReading);
+
+    // Save to database (upsert - will overwrite if same month)
+    meterReadings.upsertReading(currentMonth, floor, startReading, endReading);
+    console.log(
+      `   💾 Saved: ${currentMonth} Piso ${floor}: ${startReading} → ${endReading}`
+    );
+
+    // Format month name
+    const [monthNum, year] = currentMonth.split("/");
+    const monthNames = [
+      "Enero",
+      "Febrero",
+      "Marzo",
+      "Abril",
+      "Mayo",
+      "Junio",
+      "Julio",
+      "Agosto",
+      "Septiembre",
+      "Octubre",
+      "Noviembre",
+      "Diciembre",
+    ];
+    const monthName = monthNames[parseInt(monthNum!, 10) - 1];
+
+    // Send confirmation
+    await whatsapp.sendMessage(
+      GROUP_JID,
+      `✅ *Lectura registrada ${monthName} ${year}*\n` +
+        `   Piso ${floor}: \`${endReading}\`\n` +
+        `   Consumo: *${kwhUsed.toFixed(1)} kWh*`
+    );
   } catch (error) {
     console.error("❌ Error in Gemini OCR:", error);
     await whatsapp.sendMessage(GROUP_JID, "❌ Error al procesar la imagen.");
@@ -144,9 +193,10 @@ async function main() {
 
   console.log(`📌 Group: ${GROUP_JID}`);
   console.log(
-    `🔑 Triggers: "${TRIGGER_KEYWORD}", "${TRIGGER_PAYMENTS}", "${TRIGGER_MEDIDOR}", "${TRIGGER_PISO}"`
+    `🔑 Triggers: "${TRIGGER_KEYWORD}", "${TRIGGER_PAYMENTS}", "${TRIGGER_PISO}"`
   );
   console.log(`📅 Schedule: Day ${SCHEDULE_DAY} at ${SCHEDULE_HOUR}:00`);
+  console.log(`📷 Images from assigned users → auto-register meter reading`);
 
   // Connect to WhatsApp
   console.log("\n🔄 Connecting to WhatsApp...");
@@ -167,19 +217,17 @@ async function main() {
       await handlePisoCommand(message.sender, args);
     }
 
-    // Handle image with !medidor caption
-    if (
-      message.hasImage &&
-      message.imageBuffer &&
-      text.startsWith(TRIGGER_MEDIDOR)
-    ) {
-      // Auto-detect floor from sender
+    // Handle image from assigned users (auto-register, no keyword needed)
+    if (message.hasImage && message.imageBuffer) {
       const floor = floorAssignments.getFloorByPhone(message.sender);
-      await processMeterImage(
-        message.imageBuffer,
-        message.imageMimeType || "image/jpeg",
-        floor || undefined
-      );
+      if (floor) {
+        await processMeterImage(
+          message.imageBuffer,
+          message.imageMimeType || "image/jpeg",
+          floor
+        );
+      }
+      // If not assigned to a floor, silently ignore the image
     }
   });
 
