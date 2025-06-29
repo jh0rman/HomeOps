@@ -205,15 +205,20 @@ export function waitForConnection(sock: WASocket): Promise<void> {
 
 /**
  * Send a text message
- * @param jid - WhatsApp ID (phone@s.whatsapp.net)
+ * @param jid - WhatsApp ID (phone@s.whatsapp.net or group@g.us)
  * @param text - Message text
+ * @param mentions - Optional array of JIDs to mention (e.g., ["51933844567@lid"])
  */
-export async function sendMessage(jid: string, text: string): Promise<void> {
+export async function sendMessage(
+  jid: string,
+  text: string,
+  mentions?: string[]
+): Promise<void> {
   if (!sock) {
     throw new Error("WhatsApp not connected");
   }
 
-  await sock.sendMessage(jid, { text });
+  await sock.sendMessage(jid, { text, mentions });
   console.log(`📤 Message sent to ${jid}`);
 }
 
