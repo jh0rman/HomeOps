@@ -147,20 +147,42 @@ async function processMeterImage(
 }
 
 // Handle floor assignment command
-async function handlePisoCommand(sender: string, args: string) {
-  const floorNum = parseInt(args, 10);
+// Usage: !piso 1 (self-assign) or !piso 1 @someone (assign mentioned user)
+async function handlePisoCommand(
+  sender: string,
+  args: string,
+  mentionedJids?: string[]
+) {
+  // Parse floor number from args (first word)
+  const floorStr = args.split(/\s+/)[0];
+  const floorNum = parseInt(floorStr || "", 10);
 
   if (isNaN(floorNum) || floorNum < 1 || floorNum > 3) {
     await whatsapp.sendMessage(
       GROUP_JID,
-      "⚠️ Uso: `!piso <1|2|3>`\nEjemplo: `!piso 1`"
+      "⚠️ Uso: `!piso <1|2|3>` o `!piso <1|2|3> @persona`\nEjemplo: `!piso 1`"
     );
     return;
   }
 
-  floorAssignments.assignFloor(floorNum, sender);
-  console.log(`   📍 Assigned ${sender} to floor ${floorNum}`);
-  await whatsapp.sendMessage(GROUP_JID, `✅ Te asigné al *Piso ${floorNum}*`);
+  // Use mentioned user if provided, otherwise use sender
+  const targetUser = mentionedJids?.[0] || sender;
+  const isSelfAssign = targetUser === sender;
+
+  floorAssignments.assignFloor(floorNum, targetUser);
+  console.log(`   📍 Assigned ${targetUser} to floor ${floorNum}`);
+
+  if (isSelfAssign) {
+    await whatsapp.sendMessage(GROUP_JID, `✅ Te asigné al *Piso ${floorNum}*`);
+  } else {
+    // Extract phone for display
+    const phone = targetUser.split("@")[0];
+    await whatsapp.sendMessage(
+      GROUP_JID,
+      `✅ Asigné a @${phone} al *Piso ${floorNum}*`,
+      [targetUser]
+    );
+  }
 }
 
 // Send meter reading reminder mentioning all assigned users
@@ -259,7 +281,7 @@ async function main() {
       await sendPayments("Payments trigger detected!");
     } else if (text.startsWith(TRIGGER_PISO)) {
       const args = text.replace(TRIGGER_PISO, "").trim();
-      await handlePisoCommand(message.sender, args);
+      await handlePisoCommand(message.sender, args, message.mentionedJids);
     } else if (text === TRIGGER_REMINDER.toLowerCase()) {
       await sendMeterReminder();
     }

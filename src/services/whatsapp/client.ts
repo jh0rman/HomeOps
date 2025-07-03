@@ -71,6 +71,7 @@ type MessageCallback = (message: {
   hasImage?: boolean;
   imageBuffer?: Buffer;
   imageMimeType?: string;
+  mentionedJids?: string[];
 }) => void;
 
 let messageCallback: MessageCallback | null = null;
@@ -153,6 +154,10 @@ export function listenToGroup(
         msg.message?.imageMessage?.caption ||
         "";
 
+      // Extract mentioned JIDs
+      const mentionedJids =
+        msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+
       // Skip if no text AND no image
       if (!text && !hasImage) continue;
 
@@ -166,6 +171,8 @@ export function listenToGroup(
       console.log(`   Text: ${text || "(image only)"}`);
       console.log(`   IsGroup: ${isGroup}`);
       if (hasImage) console.log(`   HasImage: true`);
+      if (mentionedJids.length > 0)
+        console.log(`   Mentions: ${mentionedJids.join(", ")}`);
 
       if (messageCallback) {
         messageCallback({
@@ -177,6 +184,7 @@ export function listenToGroup(
           hasImage,
           imageBuffer,
           imageMimeType,
+          mentionedJids: mentionedJids.length > 0 ? mentionedJids : undefined,
         });
       }
     }
