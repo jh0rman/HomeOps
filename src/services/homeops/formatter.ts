@@ -15,11 +15,10 @@ export function formatReport(data: AggregatedData): string {
 
   // Per floor breakdown
   if (data.floors.length > 0) {
-    lines.push("🏠 *DISTRIBUCIÓN POR PISO*");
+    lines.push("🏠 *TOTAL POR PISO*");
     lines.push("");
     for (const floor of data.floors) {
       lines.push(`   *Piso ${floor.floor}* ➔ ${currency(floor.total)}`);
-      lines.push(`   ╰ ${floor.kwh.toFixed(1)} kWh consumo`);
     }
     lines.push("");
   }
@@ -29,12 +28,24 @@ export function formatReport(data: AggregatedData): string {
   lines.push("");
 
   lines.push(`⚡ *Luz:* ${currency(data.electricity.total)}`);
-  if (data.electricity.period) {
-    lines.push(`   ╰ ${data.electricity.period}`);
+  if (data.floors.length > 0) {
+    for (const f of data.floors) {
+      lines.push(
+        `   ╰ Piso ${f.floor}: ${f.kwh.toFixed(1)} kWh ➔ ${currency(f.elecTotal)}`,
+      );
+    }
   }
 
+  lines.push("");
+
   lines.push(`💧 *Agua:* ${currency(data.water.total)}`);
-  lines.push(`   ╰ ${currency(data.water.total / 3)} c/piso`);
+  if (data.floors.length > 0) {
+    for (const f of data.floors) {
+      lines.push(`   ╰ Piso ${f.floor}: ${currency(data.water.total / 3)}`);
+    }
+  }
+
+  lines.push("");
 
   lines.push(`🔥 *Gas:* ${currency(data.gas.total)}`);
   for (const g of data.gas.floors) {

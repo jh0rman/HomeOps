@@ -8,7 +8,7 @@ import type { AggregatedData } from "../../types/homeops";
 async function fetchWaterData() {
   await sedapal.login(
     process.env.SEDAPAL_EMAIL!,
-    process.env.SEDAPAL_PASSWORD!
+    process.env.SEDAPAL_PASSWORD!,
   );
 
   const sedapalSupplyNum = sedapal.getSupplyNumber() || 0;
@@ -34,7 +34,7 @@ async function fetchWaterData() {
 async function fetchElectricityData() {
   await luzdelsur.login(
     process.env.LUZDELSUR_EMAIL!,
-    process.env.LUZDELSUR_PASSWORD!
+    process.env.LUZDELSUR_PASSWORD!,
   );
 
   let elecDebt = 0;
@@ -86,7 +86,7 @@ async function fetchElectricityData() {
 async function fetchGasData() {
   await calidda.login(
     process.env.CALIDDA_EMAIL!,
-    process.env.CALIDDA_PASSWORD!
+    process.env.CALIDDA_PASSWORD!,
   );
 
   let gasRequests: any[] = [];
@@ -96,7 +96,7 @@ async function fetchGasData() {
 
   if (calidda.isAuthenticated()) {
     const accounts = (await calidda.getAccounts()).data || [];
-    
+
     // Fetch all account details in parallel
     const accountDetails = await Promise.all(
       accounts.map(async (acc) => {
@@ -105,7 +105,7 @@ async function fetchGasData() {
           calidda.getAccountStatement(acc.clientCode),
         ]);
         return { acc, basic, statement };
-      })
+      }),
     );
 
     for (const { acc, basic, statement } of accountDetails) {
@@ -150,12 +150,17 @@ export async function fetchAllData(): Promise<AggregatedData> {
 
   // Meter readings from SQLite database
   const readings = meterReadings.getLatestReadings();
-  let floorBreakdown: { floor: number; kwh: number; total: number }[] = [];
+  let floorBreakdown: {
+    floor: number;
+    kwh: number;
+    elecTotal: number;
+    total: number;
+  }[] = [];
 
   if (readings.length > 0) {
     const totalKwh = readings.reduce(
       (acc, r) => acc + (r.endReading - r.startReading),
-      0
+      0,
     );
     const billOthers = elecData.otrosConceptos + (elecData.noAfectoIGV || 0);
 
@@ -173,6 +178,7 @@ export async function fetchAllData(): Promise<AggregatedData> {
       return {
         floor: r.floor,
         kwh,
+        elecTotal,
         total: elecTotal + waterShare + gasAmount,
       };
     });

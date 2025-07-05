@@ -36,6 +36,7 @@ export interface GasData extends ServiceData {
 export interface FloorBreakdown {
   floor: number;
   kwh: number;
+  elecTotal: number;
   total: number;
 }
 
