@@ -12,7 +12,8 @@
     "bot:whatsapp": "bun run src/scripts/whatsapp-bot.ts",
     "send:email": "bun run src/scripts/send-email.ts",
     "meter": "bun run src/scripts/meter-readings.ts",
-    "floors": "bun run src/scripts/floor-assignments.ts"
+    "floors": "bun run src/scripts/floor-assignments.ts",
+    "report": "bun run src/scripts/generate-report.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
