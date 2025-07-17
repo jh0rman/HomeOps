@@ -18,6 +18,69 @@ const AUTH_FOLDER = ".whatsapp-auth";
 
 let sock: WASocket | null = null;
 
+// Format timestamp for logs
+function ts(): string {
+  return new Date().toLocaleTimeString("en-US", { hour12: false });
+}
+
+// Custom logger that formats Baileys messages nicely
+const logger = {
+  level: "info",
+  info(obj: any, msg?: string) {
+    const text = msg || obj?.msg || "";
+    if (!text) return;
+    // Filter and format important messages
+    if (text.includes("connected to WA"))
+      console.log(`   ${ts()} 🔗 Connected to WhatsApp servers`);
+    else if (text.includes("logging in"))
+      console.log(`   ${ts()} 🔑 Authenticating...`);
+    else if (text.includes("opened connection"))
+      console.log(`   ${ts()} 🌐 Connection established`);
+    else if (text.includes("pre-keys found"))
+      console.log(`   ${ts()} 🔐 Keys validated`);
+    else if (text.includes("AwaitingInitialSync"))
+      console.log(`   ${ts()} 📥 Syncing messages...`);
+    else if (text.includes("History sync"))
+      console.log(`   ${ts()} 📜 Syncing history...`);
+    else if (text.includes("Own LID session"))
+      console.log(`   ${ts()} ✅ Session ready`);
+    else if (text.includes("resyncing"))
+      return; // Skip noisy resync
+    else if (text.includes("PreKey validation"))
+      return; // Skip redundant
+    else if (text.includes("offline messages"))
+      return; // Skip
+    else if (text.includes("injecting new app"))
+      return; // Skip
+    else if (text.includes("Current prekey"))
+      return; // Skip
+    // Show any unhandled important messages
+    else console.log(`   ${ts()} 📋 ${text}`);
+  },
+  warn(obj: any, msg?: string) {
+    const text = msg || obj?.msg || "";
+    if (!text) return;
+    if (text.includes("Timeout in AwaitingInitialSync"))
+      console.log(`   ${ts()} ⏩ Sync complete (timeout, this is normal)`);
+    else console.log(`   ${ts()} ⚠️  ${text}`);
+  },
+  error(obj: any, msg?: string) {
+    const text = msg || obj?.msg || "";
+    if (!text) return;
+    // Skip known non-critical errors
+    if (text.includes("failed to sync state")) return;
+    console.log(`   ${ts()} ❌ ${text}`);
+  },
+  debug() {}, // Silent
+  trace() {}, // Silent
+  fatal(obj: any, msg?: string) {
+    console.log(`   ${ts()} 💀 ${msg || obj?.msg || "Fatal error"}`);
+  },
+  child() {
+    return logger;
+  },
+} as any;
+
 /**
  * Connect to WhatsApp
  * Will show QR code on first connection
@@ -28,6 +91,7 @@ export async function connectToWhatsApp(): Promise<WASocket> {
   sock = makeWASocket({
     auth: state,
     printQRInTerminal: false, // We'll handle QR manually
+    logger,
   });
 
   sock.ev.on("creds.update", saveCreds);
@@ -80,7 +144,7 @@ let messageCallback: MessageCallback | null = null;
  * Download image buffer from a message
  */
 async function downloadImageBuffer(
-  msg: WAMessage
+  msg: WAMessage,
 ): Promise<{ buffer: Buffer; mimeType: string } | null> {
   try {
     const imageMessage = msg.message?.imageMessage;
@@ -93,17 +157,22 @@ async function downloadImageBuffer(
       {
         logger: undefined as any,
         reuploadRequest: sock!.updateMediaMessage,
-      }
+      },
     );
 
     const mimeType = imageMessage.mimetype || "image/jpeg";
-    console.log(`   📷 Image downloaded (${mimeType})`);
 
     return { buffer: buffer as Buffer, mimeType };
   } catch (error) {
-    console.error("   ⚠️ Failed to download image:", error);
+    console.log(`   ${ts()} ⚠️  Failed to download image`);
     return null;
   }
+}
+
+// Format a JID to a short readable name
+function shortJid(jid: string): string {
+  if (jid.endsWith("@g.us")) return "group";
+  return jid.split("@")[0] || jid;
 }
 
 /**
@@ -113,7 +182,7 @@ async function downloadImageBuffer(
  */
 export function listenToGroup(
   groupJid: string,
-  callback: MessageCallback
+  callback: MessageCallback,
 ): void {
   if (!sock) {
     throw new Error("WhatsApp not connected");
@@ -125,27 +194,7 @@ export function listenToGroup(
   sock.ev.on("messages.upsert", async (m) => {
     for (const msg of m.messages) {
       const remoteJid = msg.key.remoteJid;
-
-      // Skip if no remote JID
       if (!remoteJid) continue;
-
-      // Skip if not from target group (if target is specified)
-      if (targetGroupJid && remoteJid !== targetGroupJid) continue;
-
-      // Note: Not skipping fromMe to allow seeing own messages for testing
-
-      // Check for image
-      const hasImage = !!msg.message?.imageMessage;
-      let imageBuffer: Buffer | undefined;
-      let imageMimeType: string | undefined;
-
-      if (hasImage) {
-        const result = await downloadImageBuffer(msg);
-        if (result) {
-          imageBuffer = result.buffer;
-          imageMimeType = result.mimeType;
-        }
-      }
 
       // Extract message text (including image caption)
       const text =
@@ -154,9 +203,7 @@ export function listenToGroup(
         msg.message?.imageMessage?.caption ||
         "";
 
-      // Extract mentioned JIDs
-      const mentionedJids =
-        msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+      const hasImage = !!msg.message?.imageMessage;
 
       // Skip if no text AND no image
       if (!text && !hasImage) continue;
@@ -164,15 +211,39 @@ export function listenToGroup(
       // Get sender info
       const sender = msg.key.participant || msg.key.remoteJid || "unknown";
       const isGroup = remoteJid.endsWith("@g.us");
+      const isTargetGroup = targetGroupJid && remoteJid === targetGroupJid;
 
-      console.log("\n📩 Message received:");
-      console.log(`   From: ${remoteJid}`);
-      console.log(`   Sender: ${sender}`);
-      console.log(`   Text: ${text || "(image only)"}`);
-      console.log(`   IsGroup: ${isGroup}`);
-      if (hasImage) console.log(`   HasImage: true`);
-      if (mentionedJids.length > 0)
-        console.log(`   Mentions: ${mentionedJids.join(", ")}`);
+      // Log ALL messages with clean format
+      const from = shortJid(sender);
+      const preview = text
+        ? text.length > 50
+          ? text.substring(0, 50) + "…"
+          : text
+        : "📷 imagen";
+      const source = isTargetGroup ? "🏠" : isGroup ? "👥" : "👤";
+      console.log(`   ${ts()} ${source} ${from}: ${preview}`);
+
+      // Only process messages from target group
+      if (!isTargetGroup) continue;
+
+      // Download image if present
+      let imageBuffer: Buffer | undefined;
+      let imageMimeType: string | undefined;
+
+      if (hasImage) {
+        const result = await downloadImageBuffer(msg);
+        if (result) {
+          imageBuffer = result.buffer;
+          imageMimeType = result.mimeType;
+          console.log(
+            `   ${ts()}    📷 Imagen descargada (${result.mimeType})`,
+          );
+        }
+      }
+
+      // Extract mentioned JIDs
+      const mentionedJids =
+        msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
 
       if (messageCallback) {
         messageCallback({
@@ -190,7 +261,7 @@ export function listenToGroup(
     }
   });
 
-  console.log(`\n👂 Listening to group: ${groupJid}`);
+  console.log(`   ${ts()} 👂 Listening to group: ${groupJid}`);
 }
 
 /**
@@ -220,14 +291,15 @@ export function waitForConnection(sock: WASocket): Promise<void> {
 export async function sendMessage(
   jid: string,
   text: string,
-  mentions?: string[]
+  mentions?: string[],
 ): Promise<void> {
   if (!sock) {
     throw new Error("WhatsApp not connected");
   }
 
   await sock.sendMessage(jid, { text, mentions });
-  console.log(`📤 Message sent to ${jid}`);
+  const preview = text.length > 40 ? text.substring(0, 40) + "…" : text;
+  console.log(`   ${ts()} 📤 Enviado: ${preview.replace(/\n/g, " ")}`);
 }
 
 /**

@@ -20,48 +20,43 @@ const SCHEDULE_DAY = parseInt(process.env.SCHEDULE_DAY || "26", 10);
 const SCHEDULE_HOUR = parseInt(process.env.SCHEDULE_HOUR || "9", 10);
 const REMINDER_DAY = 20;
 
+// Format timestamp for logs
+function ts(): string {
+  return new Date().toLocaleTimeString("en-US", { hour12: false });
+}
+
 // Track if we already sent today (to avoid duplicate sends)
 let lastSentDate: string | null = null;
 
 // Send report function
 async function sendReport(reason: string) {
-  console.log(`\n🚀 ${reason}`);
+  console.log(`   ${ts()} 🚀 ${reason}`);
 
   try {
     const data = await fetchAllData();
-    const report = formatReport(data);
-
-    console.log("\n📤 Sending report to group...");
-    await whatsapp.sendMessage(GROUP_JID, report);
-    console.log("✅ Report sent!");
-
-    // Mark as sent today
+    await whatsapp.sendMessage(GROUP_JID, formatReport(data));
     lastSentDate = new Date().toDateString();
   } catch (error) {
-    console.error("❌ Error generating report:", error);
+    console.log(`   ${ts()} ❌ Error generating report: ${error}`);
     await whatsapp.sendMessage(
       GROUP_JID,
-      "❌ Error al generar el reporte. Intenta de nuevo."
+      "❌ Error al generar el reporte. Intenta de nuevo.",
     );
   }
 }
 
 // Send payments logic
 async function sendPayments(reason: string) {
-  console.log(`\n🚀 ${reason}`);
+  console.log(`   ${ts()} 🚀 ${reason}`);
 
   try {
     const data = await fetchAllData();
-    const report = formatPayments(data);
-
-    console.log("\n📤 Sending payments summary to group...");
-    await whatsapp.sendMessage(GROUP_JID, report);
-    console.log("✅ Summary sent!");
+    await whatsapp.sendMessage(GROUP_JID, formatPayments(data));
   } catch (error) {
-    console.error("❌ Error generating summary:", error);
+    console.log(`   ${ts()} ❌ Error generating summary: ${error}`);
     await whatsapp.sendMessage(
       GROUP_JID,
-      "❌ Error al generar el resumen. Intenta de nuevo."
+      "❌ Error al generar el resumen. Intenta de nuevo.",
     );
   }
 }
@@ -70,18 +65,18 @@ async function sendPayments(reason: string) {
 async function processMeterImage(
   imageBuffer: Buffer,
   mimeType: string,
-  floor: number
+  floor: number,
 ) {
-  console.log(`\n🔍 Processing meter image for floor ${floor}...`);
+  console.log(`   ${ts()} 🔍 OCR Piso ${floor}...`);
 
   try {
     const result = await gemini.extractMeterReading(imageBuffer, mimeType);
 
     if (!result.success || !result.text) {
-      console.log(`   ⚠️ OCR failed: ${result.error}`);
+      console.log(`   ${ts()} ⚠️  OCR failed: ${result.error}`);
       await whatsapp.sendMessage(
         GROUP_JID,
-        `⚠️ No se pudo leer el medidor: ${result.error || "Error desconocido"}`
+        `⚠️ No se pudo leer el medidor: ${result.error || "Error desconocido"}`,
       );
       return;
     }
@@ -89,15 +84,13 @@ async function processMeterImage(
     // Parse the reading value
     const endReading = parseFloat(result.text.replace(/[^\d.]/g, ""));
     if (isNaN(endReading)) {
-      console.log(`   ⚠️ Could not parse reading: ${result.text}`);
+      console.log(`   ${ts()} ⚠️  Could not parse: ${result.text}`);
       await whatsapp.sendMessage(
         GROUP_JID,
-        `⚠️ No se pudo interpretar la lectura: \`${result.text}\``
+        `⚠️ No se pudo interpretar la lectura: \`${result.text}\``,
       );
       return;
     }
-
-    console.log(`   📊 OCR Result: ${endReading}`);
 
     // Get current month and previous reading
     const currentMonth = meterReadings.getCurrentMonth();
@@ -112,7 +105,7 @@ async function processMeterImage(
     // Save to database (upsert - will overwrite if same month)
     meterReadings.upsertReading(currentMonth, floor, startReading, endReading);
     console.log(
-      `   💾 Saved: ${currentMonth} Piso ${floor}: ${startReading} → ${endReading}`
+      `   ${ts()} 💾 ${currentMonth} Piso ${floor}: ${startReading} → ${endReading} (${kwhUsed.toFixed(1)} kWh)`,
     );
 
     // Format month name
@@ -138,10 +131,10 @@ async function processMeterImage(
       GROUP_JID,
       `✅ *Lectura registrada ${monthName} ${year}*\n` +
         `   Piso ${floor}: \`${endReading}\`\n` +
-        `   Consumo: *${kwhUsed.toFixed(1)} kWh*`
+        `   Consumo: *${kwhUsed.toFixed(1)} kWh*`,
     );
   } catch (error) {
-    console.error("❌ Error in Gemini OCR:", error);
+    console.log(`   ${ts()} ❌ Gemini OCR error: ${error}`);
     await whatsapp.sendMessage(GROUP_JID, "❌ Error al procesar la imagen.");
   }
 }
@@ -151,7 +144,7 @@ async function processMeterImage(
 async function handlePisoCommand(
   sender: string,
   args: string,
-  mentionedJids?: string[]
+  mentionedJids?: string[],
 ) {
   // Parse floor number from args (first word)
   const floorStr = args.split(/\s+/)[0];
@@ -160,7 +153,7 @@ async function handlePisoCommand(
   if (isNaN(floorNum) || floorNum < 1 || floorNum > 3) {
     await whatsapp.sendMessage(
       GROUP_JID,
-      "⚠️ Uso: `!piso <1|2|3>` o `!piso <1|2|3> @persona`\nEjemplo: `!piso 1`"
+      "⚠️ Uso: `!piso <1|2|3>` o `!piso <1|2|3> @persona`\nEjemplo: `!piso 1`",
     );
     return;
   }
@@ -170,29 +163,28 @@ async function handlePisoCommand(
   const isSelfAssign = targetUser === sender;
 
   floorAssignments.assignFloor(floorNum, targetUser);
-  console.log(`   📍 Assigned ${targetUser} to floor ${floorNum}`);
+  console.log(`   ${ts()} 📍 Piso ${floorNum} → ${targetUser.split("@")[0]}`);
 
   if (isSelfAssign) {
     await whatsapp.sendMessage(GROUP_JID, `✅ Te asigné al *Piso ${floorNum}*`);
   } else {
-    // Extract phone for display
     const phone = targetUser.split("@")[0];
     await whatsapp.sendMessage(
       GROUP_JID,
       `✅ Asigné a @${phone} al *Piso ${floorNum}*`,
-      [targetUser]
+      [targetUser],
     );
   }
 }
 
 // Send meter reading reminder mentioning all assigned users
 async function sendMeterReminder() {
-  console.log("\n📢 Sending meter reading reminder...");
+  console.log(`   ${ts()} 📢 Sending meter reminder...`);
 
   const assignments = floorAssignments.getAllAssignments();
 
   if (assignments.length === 0) {
-    console.log("   ⚠️ No floor assignments found");
+    console.log(`   ${ts()} ⚠️  No floor assignments found`);
     return;
   }
 
@@ -210,10 +202,8 @@ async function sendMeterReminder() {
       `${floorList}\n\n` +
       `Por favor, envíen una foto de su medidor eléctrico.\n` +
       `El registro es automático 🤖`,
-    mentionJids
+    mentionJids,
   );
-
-  console.log("✅ Reminder sent!");
 }
 
 // Track if we already sent reminder today
@@ -244,29 +234,33 @@ function checkScheduledTasks() {
 }
 
 async function main() {
-  console.log("🤖 WhatsApp Report Bot\n");
-  console.log("=".repeat(50));
+  console.log("");
+  console.log("  🤖 HomeOps WhatsApp Bot");
+  console.log("  " + "─".repeat(40));
+  console.log(`  📌 Group: ${GROUP_JID}`);
+  console.log(
+    `  🔑 ${TRIGGER_KEYWORD}  ${TRIGGER_PAYMENTS}  ${TRIGGER_PISO}  ${TRIGGER_REMINDER}`,
+  );
+  console.log(
+    `  📅 Report: day ${SCHEDULE_DAY} | Reminder: day ${REMINDER_DAY} | Hour: ${SCHEDULE_HOUR}:00`,
+  );
+  console.log(`  📷 Auto-register meter from assigned users`);
+  console.log("  " + "─".repeat(40));
+  console.log("");
 
-  // Validate environment (simplified check, detailed check could be in aggregator or config utils)
+  // Validate environment
   if (!process.env.SEDAPAL_EMAIL) {
-    console.error("❌ Missing env vars (check .env)");
+    console.error(`   ${ts()} ❌ Missing env vars (check .env)`);
     process.exit(1);
   }
 
   if (!GROUP_JID) {
-    console.error("❌ Missing GROUP_JID");
+    console.error(`   ${ts()} ❌ Missing GROUP_JID`);
     process.exit(1);
   }
 
-  console.log(`📌 Group: ${GROUP_JID}`);
-  console.log(
-    `🔑 Triggers: "${TRIGGER_KEYWORD}", "${TRIGGER_PAYMENTS}", "${TRIGGER_PISO}", "${TRIGGER_REMINDER}"`
-  );
-  console.log(`📅 Report: Day ${SCHEDULE_DAY} | Reminder: Day ${REMINDER_DAY}`);
-  console.log(`📷 Images from assigned users → auto-register meter reading`);
-
   // Connect to WhatsApp
-  console.log("\n🔄 Connecting to WhatsApp...");
+  console.log(`   ${ts()} 🔄 Connecting to WhatsApp...`);
   const sock = await whatsapp.connect();
   await whatsapp.waitForConnection(sock);
 
@@ -293,19 +287,16 @@ async function main() {
         await processMeterImage(
           message.imageBuffer,
           message.imageMimeType || "image/jpeg",
-          floor
+          floor,
         );
       }
-      // If not assigned to a floor, silently ignore the image
     }
   });
 
   // Start scheduler (check every minute)
   setInterval(checkScheduledTasks, 60 * 1000);
-  console.log("\n⏳ Bot running... (Ctrl+C to exit)");
-  console.log(
-    `   Report: Day ${SCHEDULE_DAY} | Reminder: Day ${REMINDER_DAY}\n`
-  );
+  console.log(`   ${ts()} ⏳ Bot running... (Ctrl+C to exit)`);
+  console.log("");
 
   // Keep alive
   await new Promise(() => {});
