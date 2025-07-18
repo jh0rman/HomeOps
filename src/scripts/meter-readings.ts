@@ -1,12 +1,12 @@
 /**
  * Meter Readings CLI
  * Manage electricity meter readings via command line
- * 
+ *
  * Usage:
- *   bun run meter:add 01/2025 1 1234.5 1328.8    Add reading for floor 1
- *   bun run meter:add 01/2025 2 2100 2216.8      Add reading for floor 2
- *   bun run meter:list                            List all readings
- *   bun run meter:list 01/2025                    List readings for month
+ *   bun meter add <floor> <reading>       Register current month reading
+ *   bun meter list                        List all readings
+ *   bun meter list <month>                List readings for a specific month
+ *   bun meter delete <month>              Delete all readings for a month
  */
 
 import { meterReadings } from "../services/meter-readings";
@@ -18,15 +18,17 @@ function printHelp() {
 📊 Meter Readings CLI
 
 Commands:
-  add <month> <floor> <start> <end>   Add/update a reading
-  list [month]                        List readings
-  delete <month>                      Delete readings for a month
+  add <floor> <reading>          Register reading (current month, auto start)
+  add <month> <floor> <reading>  Register reading for a specific month
+  list [month]                   List readings (all or by month)
+  delete <month>                 Delete readings for a month
 
 Examples:
-  bun run meter add 01/2025 1 1234.5 1328.8
-  bun run meter list
-  bun run meter list 01/2025
-  bun run meter delete 01/2025
+  bun meter add 1 1587.3               → Piso 1, current month, auto start
+  bun meter add 02/2026 2 2172.3       → Piso 2, Feb 2026, auto start
+  bun meter list
+  bun meter list 01/2026
+  bun meter delete 12/2025
 `);
 }
 
@@ -36,70 +38,93 @@ function formatKwh(start: number, end: number) {
 
 switch (command) {
   case "add": {
-    const [month, floorStr, startStr, endStr] = args;
-    if (!month || !floorStr || !startStr || !endStr) {
-      console.error("❌ Usage: add <month> <floor> <start> <end>");
-      console.error("   Example: add 01/2025 1 1234.5 1328.8");
+    let month: string;
+    let floor: number;
+    let endReading: number;
+
+    if (args.length === 2) {
+      // Short form: add <floor> <reading> (current month)
+      month = meterReadings.getCurrentMonth();
+      floor = parseInt(args[0]!);
+      endReading = parseFloat(args[1]!);
+    } else if (args.length === 3) {
+      // Full form: add <month> <floor> <reading>
+      month = args[0]!;
+      floor = parseInt(args[1]!);
+      endReading = parseFloat(args[2]!);
+    } else {
+      console.error("❌ Usage: add <floor> <reading>");
+      console.error("   Example: add 1 1587.3");
       process.exit(1);
     }
-    
-    const floor = parseInt(floorStr);
-    const start = parseFloat(startStr);
-    const end = parseFloat(endStr);
-    
-    if (isNaN(floor) || isNaN(start) || isNaN(end)) {
-      console.error("❌ Invalid numbers");
+
+    if (isNaN(floor) || floor < 1 || floor > 3) {
+      console.error("❌ Floor must be 1, 2, or 3");
       process.exit(1);
     }
-    
-    meterReadings.upsertReading(month, floor, start, end);
-    console.log(`✅ Added: ${month} Piso ${floor}: ${start} → ${end} (${formatKwh(start, end)} kWh)`);
+
+    if (isNaN(endReading)) {
+      console.error("❌ Invalid reading number");
+      process.exit(1);
+    }
+
+    // Auto-detect start reading from previous data
+    const previous = meterReadings.getLatestFloorReading(floor);
+    const startReading = previous?.endReading ?? endReading;
+
+    meterReadings.upsertReading(month, floor, startReading, endReading);
+    const kwh = Math.max(0, endReading - startReading);
+    console.log(
+      `✅ ${month} Piso ${floor}: ${startReading} → ${endReading} (${kwh.toFixed(1)} kWh)`,
+    );
     break;
   }
-  
+
   case "list": {
     const [month] = args;
-    const readings = month 
+    const readings = month
       ? meterReadings.getReadings(month)
       : meterReadings.getAllReadings();
-    
+
     if (readings.length === 0) {
       console.log("📭 No readings found");
       break;
     }
-    
+
     console.log("\n📊 Meter Readings\n");
-    
+
     let currentMonth = "";
     for (const r of readings) {
       if (r.month !== currentMonth) {
         currentMonth = r.month;
         console.log(`📅 ${r.month}`);
       }
-      console.log(`   Piso ${r.floor}: ${r.startReading} → ${r.endReading} (${formatKwh(r.startReading, r.endReading)} kWh)`);
+      console.log(
+        `   Piso ${r.floor}: ${r.startReading} → ${r.endReading} (${formatKwh(r.startReading, r.endReading)} kWh)`,
+      );
     }
     console.log("");
     break;
   }
-  
+
   case "delete": {
     const [month] = args;
     if (!month) {
       console.error("❌ Usage: delete <month>");
       process.exit(1);
     }
-    
+
     const count = meterReadings.deleteMonth(month);
     console.log(`🗑️ Deleted ${count} readings for ${month}`);
     break;
   }
-  
+
   case "help":
   case "--help":
   case "-h":
     printHelp();
     break;
-  
+
   default:
     if (command) {
       console.error(`❌ Unknown command: ${command}`);
