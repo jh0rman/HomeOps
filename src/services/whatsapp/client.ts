@@ -92,6 +92,7 @@ export async function connectToWhatsApp(): Promise<WASocket> {
     auth: state,
     printQRInTerminal: false, // We'll handle QR manually
     logger,
+    version: [2, 3000, 1033893291],
   });
 
   sock.ev.on("creds.update", saveCreds);
