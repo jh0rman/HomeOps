@@ -7,6 +7,7 @@ import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
   downloadMediaMessage,
+  fetchLatestBaileysVersion,
   type WASocket,
   type WAMessage,
 } from "@whiskeysockets/baileys";
@@ -16,7 +17,12 @@ import qrcode from "qrcode-terminal";
 
 const AUTH_FOLDER = ".whatsapp-auth";
 
+// Fallback only. WhatsApp terminates the stream (428) when the client version
+// is too old, so we always try to fetch the current one first.
+const FALLBACK_VERSION: [number, number, number] = [2, 3000, 1043857760];
+
 let sock: WASocket | null = null;
+let reconnectAttempts = 0;
 
 // Format timestamp for logs
 function ts(): string {
@@ -88,14 +94,27 @@ const logger = {
 export async function connectToWhatsApp(): Promise<WASocket> {
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_FOLDER);
 
+  // An outdated client version makes WhatsApp close the stream right after
+  // login, which looks like an endless reconnect loop.
+  let version = FALLBACK_VERSION;
+  try {
+    const latest = await fetchLatestBaileysVersion();
+    version = latest.version as [number, number, number];
+  } catch {
+    console.log(`   ${ts()} ⚠️  Could not fetch WA version, using fallback`);
+  }
+
   sock = makeWASocket({
     auth: state,
     printQRInTerminal: false, // We'll handle QR manually
     logger,
-    version: [2, 3000, 1033893291],
+    version,
   });
 
   sock.ev.on("creds.update", saveCreds);
+
+  // Handlers live on the socket, so they must be re-attached on every reconnect
+  attachMessageHandler(sock);
 
   sock.ev.on("connection.update", (update) => {
     const { connection, lastDisconnect, qr } = update;
@@ -106,17 +125,31 @@ export async function connectToWhatsApp(): Promise<WASocket> {
     }
 
     if (connection === "close") {
-      const shouldReconnect =
-        (lastDisconnect?.error as Boom)?.output?.statusCode !==
-        DisconnectReason.loggedOut;
+      const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
-      console.log("Connection closed. Reconnecting:", shouldReconnect);
-
-      if (shouldReconnect) {
-        connectToWhatsApp();
+      if (!shouldReconnect) {
+        console.log(
+          `   ${ts()} 🚪 Sesión cerrada desde el teléfono. Borra ${AUTH_FOLDER} y vuelve a escanear el QR.`,
+        );
+        return;
       }
+
+      // Exponential backoff so a persistent failure doesn't spin the CPU
+      reconnectAttempts++;
+      const delay = Math.min(30_000, 1000 * 2 ** (reconnectAttempts - 1));
+      console.log(
+        `   ${ts()} 🔌 Conexión cerrada (${statusCode ?? "?"}). Reintentando en ${delay / 1000}s (intento ${reconnectAttempts})`,
+      );
+      setTimeout(() => {
+        connectToWhatsApp().catch((err) =>
+          console.log(`   ${ts()} ❌ Reconnect failed: ${err}`),
+        );
+      }, delay);
     } else if (connection === "open") {
+      reconnectAttempts = 0;
       console.log("\n✅ WhatsApp connected!");
+      for (const resolve of openWaiters.splice(0)) resolve();
     }
   });
 
@@ -140,6 +173,9 @@ type MessageCallback = (message: {
 }) => void;
 
 let messageCallback: MessageCallback | null = null;
+
+// Resolvers waiting for the next "open" connection
+const openWaiters: Array<() => void> = [];
 
 /**
  * Download image buffer from a message
@@ -192,7 +228,19 @@ export function listenToGroup(
   targetGroupJid = groupJid;
   messageCallback = callback;
 
-  sock.ev.on("messages.upsert", async (m) => {
+  attachMessageHandler(sock);
+
+  console.log(`   ${ts()} 👂 Listening to group: ${groupJid}`);
+}
+
+/**
+ * Attach the messages.upsert handler to a socket.
+ * Called on every (re)connection so listening survives reconnects.
+ */
+function attachMessageHandler(s: WASocket): void {
+  if (!messageCallback) return;
+
+  s.ev.on("messages.upsert", async (m) => {
     for (const msg of m.messages) {
       const remoteJid = msg.key.remoteJid;
       if (!remoteJid) continue;
@@ -261,25 +309,26 @@ export function listenToGroup(
       }
     }
   });
-
-  console.log(`   ${ts()} 👂 Listening to group: ${groupJid}`);
 }
 
 /**
- * Wait for WhatsApp connection to be ready
+ * Wait for WhatsApp connection to be ready.
+ * Resolves on the next "open" event, including after a reconnect.
  */
-export function waitForConnection(sock: WASocket): Promise<void> {
+export function waitForConnection(_sock?: WASocket): Promise<void> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
+      const i = openWaiters.indexOf(onOpen);
+      if (i !== -1) openWaiters.splice(i, 1);
       reject(new Error("Connection timeout (60s)"));
     }, 60000);
 
-    sock.ev.on("connection.update", (update) => {
-      if (update.connection === "open") {
-        clearTimeout(timeout);
-        resolve();
-      }
-    });
+    const onOpen = () => {
+      clearTimeout(timeout);
+      resolve();
+    };
+
+    openWaiters.push(onOpen);
   });
 }
 
